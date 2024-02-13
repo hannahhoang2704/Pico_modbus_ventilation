@@ -7,6 +7,10 @@
 #include "nanomodbus.h"
 #include "PicoUart.h"
 
+#include "IPStack.h"
+#include "Countdown.h"
+#include "MQTTClient.h"
+
 #define STRLEN 80
 
 
@@ -31,6 +35,15 @@ int32_t uart_transport_read(uint8_t* buf, uint16_t count, int32_t byte_timeout_m
 int32_t uart_transport_write(const uint8_t* buf, uint16_t count, int32_t byte_timeout_ms,
                  void* arg);/*!< Bytes write transport function pointer */
 
+void messageArrived(MQTT::MessageData& md)
+{
+    static int arrivedcount = 0; //yuck, get rid of this
+    MQTT::Message &message = md.message;
+
+    printf("Message %d arrived: qos %d, retained %d, dup %d, packetid %d\n",
+            ++arrivedcount, message.qos, message.retained, message.dup, message.id);
+    printf("Payload %s\n", (char*)message.payload);
+}
 
 
 int main() {
@@ -93,6 +106,35 @@ int main() {
         return 1;
     }
 #endif
+
+    IPStack ipstack;
+    MQTT::Client<IPStack, Countdown> client = MQTT::Client<IPStack, Countdown>(ipstack);
+
+    int rc = ipstack.connect("192.168.1.10", 1883);
+    if (rc != 1)
+    {
+        printf("rc from TCP connect is %d\n", rc);
+    }
+
+    printf("MQTT connecting\n");
+    MQTTPacket_connectData data = MQTTPacket_connectData_initializer;
+    data.MQTTVersion = 3;
+    data.clientID.cstring = (char*)"arduino-sample";
+    rc = client.connect(data);
+    if (rc != 0)
+    {
+        printf("rc from MQTT connect is %d\n", rc);
+    }
+    printf("MQTT connected\n");
+
+    rc = client.subscribe("test-topic", MQTT::QOS2, messageArrived);
+    if (rc != 0)
+    {
+        printf("rc from MQTT subscribe is %d\n", rc);
+    }
+    printf("MQTT subscribed\n");
+
+
     while(true) {
         // Read 1 holding registers from address 256
         uint16_t r_regs[2];

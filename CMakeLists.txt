@@ -20,6 +20,7 @@ add_compile_options(-Wall
         -Wno-unused-function # we have some for the docs that aren't called
         -Wno-maybe-uninitialized
 )
+file(GLOB MQTT_SOURCES "paho.mqtt.embedded-c/MQTTPacket/src/*.c")
 
 # Tell CMake where to find the executable source file
 add_executable(${PROJECT_NAME}
@@ -35,6 +36,7 @@ add_executable(${PROJECT_NAME}
         IPStack.cpp
         IPStack.h
         lwipopts.h
+        ${MQTT_SOURCES}
 )
 
 # Create map/bin/hex/uf2 files
@@ -47,6 +49,8 @@ pico_add_extra_outputs(${PROJECT_NAME})
 
 target_include_directories(${PROJECT_NAME} PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}
+        paho.mqtt.embedded-c/MQTTPacket/src
+        paho.mqtt.embedded-c/MQTTClient/src
 )
 
 # Link to pico_stdlib (gpio, time, etc. functions)
