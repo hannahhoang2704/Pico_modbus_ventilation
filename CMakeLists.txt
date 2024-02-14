@@ -37,6 +37,10 @@ add_executable(${PROJECT_NAME}
         IPStack.h
         lwipopts.h
         ${MQTT_SOURCES}
+        ModbusRegister.cpp
+        ModbusRegister.h
+        ModbusClient.cpp
+        ModbusClient.h
 )
 
 # Create map/bin/hex/uf2 files
