@@ -155,23 +155,25 @@ err_t IPStack::tcp_client_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, 
         uint16_t available = BUF_SIZE - state->count;
         uint16_t bytes_to_copy = available > p->tot_len ? p->tot_len : available;
         uint16_t wr_end = state->wr + bytes_to_copy;
-        if (wr_end > BUF_SIZE) {
-            // need to copy in two parts
-            uint16_t first_copy = BUF_SIZE - state->wr; // calculate the size of first part to copy
-            if (first_copy) { //
-                bytes_to_copy -= pbuf_copy_partial(p, state->buffer + state->wr, first_copy, 0);
-            }
-            // start from beginning
-            state->wr = pbuf_copy_partial(p, state->buffer + state->wr, bytes_to_copy, first_copy);
-        } else {
-            state->wr += pbuf_copy_partial(p, state->buffer + state->wr, bytes_to_copy, 0);
-            state->wr %= BUF_SIZE; // wrap over (should happen only when wr==BUFSIZE, other cases are handled in two part copy)
-        }
+        uint16_t first_copy = 0;
+
         state->count += bytes_to_copy;
-        tcp_recved(tpcb, p->tot_len);
-        if(bytes_to_copy < p->tot_len) {
+        if (bytes_to_copy < p->tot_len) {
             state->dropped += p->tot_len - bytes_to_copy;
         }
+
+        if (wr_end > BUF_SIZE) {
+            // need to copy in two parts
+            first_copy = BUF_SIZE - state->wr; // calculate the size of first part to copy
+            if (first_copy) { //
+                bytes_to_copy -= pbuf_copy_partial(p, state->buffer + state->wr, first_copy, 0);
+                state->wr = 0; // start next copy from beginning
+            }
+        }
+        state->wr += pbuf_copy_partial(p, state->buffer + state->wr, bytes_to_copy, first_copy);
+        state->wr %= BUF_SIZE; // wrap over
+
+        tcp_recved(tpcb, p->tot_len);
     }
     pbuf_free(p); // can we omit this call after partial copy to save the buffer for copying the rest later?
 
@@ -219,7 +221,6 @@ int IPStack::write(unsigned char *buffer, int len, int timeout) {
     err_t err = tcp_write(tcp_pcb.get(), buffer, len, TCP_WRITE_FLAG_COPY);
     if (err != ERR_OK) {
         DEBUG_printf("Failed to write data %d\n", err);
-        return -1;
     }
     // headers suggest that this should be called to make sure that data is sent right away
     // however there is TCB_WRITE_FLAG_MORE that possibly indicates the same thing??
