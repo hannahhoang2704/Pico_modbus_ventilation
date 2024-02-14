@@ -157,7 +157,7 @@ err_t IPStack::tcp_client_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, 
         uint16_t wr_end = state->wr + bytes_to_copy;
         uint16_t first_copy = 0;
 
-        state->count += bytes_to_copy;
+        // check if bytes are to be dropped
         if (bytes_to_copy < p->tot_len) {
             state->dropped += p->tot_len - bytes_to_copy;
         }
@@ -169,13 +169,15 @@ err_t IPStack::tcp_client_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, 
                 bytes_to_copy -= pbuf_copy_partial(p, state->buffer + state->wr, first_copy, 0);
                 state->wr = 0; // start next copy from beginning
             }
+            state->count += first_copy; // increment count by copied bytes
         }
         state->wr += pbuf_copy_partial(p, state->buffer + state->wr, bytes_to_copy, first_copy);
         state->wr %= BUF_SIZE; // wrap over
+        state->count += bytes_to_copy; // increment count by the rest of the copied bytes
 
         tcp_recved(tpcb, p->tot_len);
     }
-    pbuf_free(p); // can we omit this call after partial copy to save the buffer for copying the rest later?
+    pbuf_free(p); // can we omit this call instead of dropping bytes to save the buffer for copying the rest later?
 
     return ERR_OK;
 }
@@ -197,6 +199,7 @@ int IPStack::read(unsigned char *buffer, int len, int timeout) {
             if (first_copy) { //
                 std::memcpy(buffer, this->buffer + rd, first_copy);
                 bytes_to_copy -= first_copy;
+                count -= first_copy; // reduce count by copied bytes
             }
             // start from beginning
             std::memcpy(buffer + first_copy, this->buffer, bytes_to_copy);
@@ -205,7 +208,7 @@ int IPStack::read(unsigned char *buffer, int len, int timeout) {
             std::memcpy(buffer, this->buffer + rd, bytes_to_copy);
             rd = (rd + bytes_to_copy) % BUF_SIZE;
         }
-        count -= bytes_to_copy;
+        count -= bytes_to_copy; // reduce count by the rest of the copied bytes
     }
     // return count or status??
     return bytes_to_copy;
