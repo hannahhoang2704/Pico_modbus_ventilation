@@ -30,21 +30,21 @@
 #define DBG_PIN1 16
 #define DBG_PIN2 16
 
-int32_t uart_transport_read(uint8_t* buf, uint16_t count, int32_t byte_timeout_ms,
-                void* arg); /*!< Bytes read transport function pointer */
-int32_t uart_transport_write(const uint8_t* buf, uint16_t count, int32_t byte_timeout_ms,
-                 void* arg);/*!< Bytes write transport function pointer */
+int32_t uart_transport_read(uint8_t *buf, uint16_t count, int32_t byte_timeout_ms,
+                            void *arg); /*!< Bytes read transport function pointer */
+int32_t uart_transport_write(const uint8_t *buf, uint16_t count, int32_t byte_timeout_ms,
+                             void *arg);/*!< Bytes write transport function pointer */
 
-void messageArrived(MQTT::MessageData& md)
-{
+void messageArrived(MQTT::MessageData &md) {
     static int arrivedcount = 0; //yuck, get rid of this
     MQTT::Message &message = md.message;
 
     printf("Message %d arrived: qos %d, retained %d, dup %d, packetid %d\n",
-            ++arrivedcount, message.qos, message.retained, message.dup, message.id);
-    printf("Payload %s\n", (char*)message.payload);
+           ++arrivedcount, message.qos, message.retained, message.dup, message.id);
+    printf("Payload %s\n", (char *) message.payload);
 }
 
+static const char *topic = "test-topic";
 
 int main() {
 
@@ -81,7 +81,7 @@ int main() {
     platform_conf.transport = NMBS_TRANSPORT_RTU;
     platform_conf.read = uart_transport_read;
     platform_conf.write = uart_transport_write;
-    platform_conf.arg =  (void *)&uart;    // Passing our uart handle to the read/write functions
+    platform_conf.arg = (void *) &uart;    // Passing our uart handle to the read/write functions
 
     // Create the modbus client
     nmbs_t nmbs;
@@ -111,43 +111,90 @@ int main() {
     MQTT::Client<IPStack, Countdown> client = MQTT::Client<IPStack, Countdown>(ipstack);
 
     int rc = ipstack.connect("192.168.1.10", 1883);
-    if (rc != 1)
-    {
+    if (rc != 1) {
         printf("rc from TCP connect is %d\n", rc);
     }
 
     printf("MQTT connecting\n");
     MQTTPacket_connectData data = MQTTPacket_connectData_initializer;
     data.MQTTVersion = 3;
-    data.clientID.cstring = (char*)"arduino-sample";
+    data.clientID.cstring = (char *) "arduino-sample";
     rc = client.connect(data);
-    if (rc != 0)
-    {
+    if (rc != 0) {
         printf("rc from MQTT connect is %d\n", rc);
     }
     printf("MQTT connected\n");
 
-    rc = client.subscribe("test-topic", MQTT::QOS2, messageArrived);
-    if (rc != 0)
-    {
+    rc = client.subscribe(topic, MQTT::QOS2, messageArrived);
+    if (rc != 0) {
         printf("rc from MQTT subscribe is %d\n", rc);
     }
     printf("MQTT subscribed\n");
 
+    auto modbus_poll = make_timeout_time_ms(3000);
+    auto mqtt_send = make_timeout_time_ms(5000);
+    int mqtt_qos = 0;
 
-    while(true) {
-        // Read 1 holding registers from address 256
-        uint16_t r_regs[2];
-        err = nmbs_read_holding_registers(&nmbs, 256, 1, r_regs);
-        if (err != NMBS_ERROR_NONE) {
-            fprintf(stderr, "Error reading 1 holding registers at address 256 - %s\n", nmbs_strerror(err));
-            //return 1;
-            sleep_ms(100);
+    while (true) {
+        if (time_reached(modbus_poll)) {
+            // Read 1 holding registers from address 256
+            uint16_t r_regs[2];
+            err = nmbs_read_holding_registers(&nmbs, 256, 1, r_regs);
+            if (err != NMBS_ERROR_NONE) {
+                fprintf(stderr, "Error reading 1 holding registers at address 256 - %s\n", nmbs_strerror(err));
+                //return 1;
+                modbus_poll = delayed_by_ms(modbus_poll, 100); // try again after 100ms
+            } else {
+                printf("RH=%5.1f%%\n", r_regs[0] / 10.0);
+                modbus_poll = delayed_by_ms(modbus_poll, 3000);
+            }
         }
-        else {
-            printf("RH=%5.1f%%\n", r_regs[0] / 10.0);
-            sleep_ms(3000);
+        if (time_reached(mqtt_send)) {
+            mqtt_send = delayed_by_ms(mqtt_send, 5000);
+
+            char buf[100];
+            int rc = 0;
+            MQTT::Message message;
+            message.retained = false;
+            message.dup = false;
+            message.payload = (void *) buf;
+            switch (mqtt_qos) {
+                case 0:
+                    // Send and receive QoS 0 message
+                    sprintf(buf, "Hello World! QoS 0 message");
+                    printf("%s\n", buf);
+                    message.qos = MQTT::QOS0;
+                    message.payloadlen = strlen(buf) + 1;
+                    rc = client.publish(topic, message);
+                    ++mqtt_qos;
+                    break;
+                case 1:
+                    // Send and receive QoS 1 message
+                    sprintf(buf, "Hello World!  QoS 1 message");
+                    printf("%s\n", buf);
+                    message.qos = MQTT::QOS1;
+                    message.payloadlen = strlen(buf) + 1;
+                    rc = client.publish(topic, message);
+                    ++mqtt_qos;
+                    break;
+                case 2:
+                    // Send and receive QoS 2 message
+                    sprintf(buf, "Hello World!  QoS 2 message");
+                    printf("%s\n", buf);
+                    message.qos = MQTT::QOS2;
+                    message.payloadlen = strlen(buf) + 1;
+                    rc = client.publish(topic, message);
+                    mqtt_qos = 0;
+                    break;
+                default:
+                    mqtt_qos = 0;
+                    break;
+            }
+            printf("Publish rc=%d\n", rc);
         }
+
+        cyw43_arch_poll(); // obsolete? - see below
+        client.yield(100); // socket that client uses calls cyw43_arch_poll()
     }
 
     // Loop forever
@@ -173,7 +220,7 @@ int32_t uart_transport_read(uint8_t *buf, uint16_t count, int32_t byte_timeout_m
     bool notimeout = byte_timeout_ms < 0;
     uint64_t timeout = byte_timeout_ms < 0 ? 0 : byte_timeout_ms * 1000ULL;
     uint flv = uart->get_fifo_level();
-    if(flv) {
+    if (flv) {
         // The timeout must be atleast fifo level x bits/ch x bit time.
         // Minimum fifo level is 4.
         // There is also fifo inactivity timeout which is fixed at 32 bit time
@@ -182,18 +229,18 @@ int32_t uart_transport_read(uint8_t *buf, uint16_t count, int32_t byte_timeout_m
         uint64_t fifo_to = ((flv * 10 + 32) * 1000000ULL) / uart->get_baud();
         // if delay caused by fifo is longer than requested byte timeout
         // then use the fifo timeout
-        if(timeout < fifo_to) timeout = fifo_to;
+        if (timeout < fifo_to) timeout = fifo_to;
     }
     // debug printout
     //printf("flv=%u, bto=%d, cnt=%d, to=%u\n",flv,byte_timeout_ms,count, (uint) timeout);
 
-    absolute_time_t to = make_timeout_time_us(timeout );
+    absolute_time_t to = make_timeout_time_us(timeout);
     int32_t rcnt = 0;
-    while(rcnt < count && (notimeout || !time_reached(to)) ) {
+    while (rcnt < count && (notimeout || !time_reached(to))) {
         //gpio_put(DBG_PIN1, true);
         int32_t cnt = uart->read(buf + rcnt, count - rcnt);
         rcnt += cnt;
-        if(cnt > 0){
+        if (cnt > 0) {
             //gpio_put(DBG_PIN1, false);
             // if we received new data update the timeout
             to = make_timeout_time_us(timeout);
