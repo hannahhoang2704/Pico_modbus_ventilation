@@ -8,11 +8,25 @@
 
 
 // To remove Pico example debugging functions during refactoring
-#define DEBUG_printf(x, ...) {}
+//#define DEBUG_printf(x, ...) {}
+#define DEBUG_printf printf
 #define DUMP_BYTES(A, B) {}
 
 
-IPStack::IPStack() : count{0}, wr{0}, rd{0}, connected{false} {
+IPStack::IPStack(const char *ssid, const char *pw) : count{0}, wr{0}, rd{0}, connected{false} {
+    if (cyw43_arch_init()) {
+        DEBUG_printf("failed to initialise\n");
+        return;
+    }
+    cyw43_arch_enable_sta_mode();
+
+    printf("Connecting to Wi-Fi...\n");
+    if (cyw43_arch_wifi_connect_timeout_ms(ssid, pw, CYW43_AUTH_WPA2_AES_PSK, 30000)) {
+        printf("failed to connect.\n");
+        return ;
+    } else {
+        printf("Connected.\n");
+    }
 
 }
 
@@ -27,7 +41,7 @@ int IPStack::connect(const char *hostname, int port) {
         return 0;
     }
     // open a socket connection
-    DEBUG_printf("Connecting to %s port %u\n", ip4addr_ntoa(remote_addr), port);
+    DEBUG_printf("Connecting to %s port %u\n", ip4addr_ntoa(&remote_addr), port);
     tcp_pcb = std::unique_ptr<struct tcp_pcb>(tcp_new_ip_type(IP_GET_TYPE(remote_addr)));
     if (!tcp_pcb) {
         DEBUG_printf("failed to create pcb\n");
@@ -170,6 +184,7 @@ err_t IPStack::tcp_client_recv(void *arg, struct tcp_pcb *tpcb, struct pbuf *p, 
                 state->wr = 0; // start next copy from beginning
             }
             state->count += first_copy; // increment count by copied bytes
+            //printf("tot:%d, fc: %d, bc: %d, wr:%d\n", p->tot_len, first_copy, bytes_to_copy, state->wr);
         }
         state->wr += pbuf_copy_partial(p, state->buffer + state->wr, bytes_to_copy, first_copy);
         state->wr %= BUF_SIZE; // wrap over
@@ -190,12 +205,13 @@ int IPStack::read(unsigned char *buffer, int len, int timeout) {
         cyw43_arch_poll();
     } while (count < len && !time_reached(to));
 
+    uint16_t first_copy = 0;
     int bytes_to_copy = count < len ? count : len;
     if (bytes_to_copy) {
         uint16_t rd_end = rd + bytes_to_copy;
         if (rd_end > BUF_SIZE) {
             // need to copy in two parts
-            uint16_t first_copy = BUF_SIZE - rd; // calculate the size of the first part to copy
+            first_copy = BUF_SIZE - rd; // calculate the size of the first part to copy
             if (first_copy) { //
                 std::memcpy(buffer, this->buffer + rd, first_copy);
                 bytes_to_copy -= first_copy;
@@ -204,17 +220,19 @@ int IPStack::read(unsigned char *buffer, int len, int timeout) {
             // start from beginning
             std::memcpy(buffer + first_copy, this->buffer, bytes_to_copy);
             rd = bytes_to_copy;
+            //printf("read: fc: %d, bc: %d, len:%d\n", first_copy, bytes_to_copy, len);
         } else {
             std::memcpy(buffer, this->buffer + rd, bytes_to_copy);
             rd = (rd + bytes_to_copy) % BUF_SIZE;
         }
         count -= bytes_to_copy; // reduce count by the rest of the copied bytes
     }
-    // return count or status??
-    return bytes_to_copy;
+    // return count of copied bytes
+    return bytes_to_copy+first_copy;
 }
 
 int IPStack::write(unsigned char *buffer, int len, int timeout) {
+    int rv = len;
     // cyw43_arch_lwip_begin/end should be used around calls into lwIP to ensure correct locking.
     // You can omit them if you are in a callback from lwIP. Note that when using pico_cyw_arch_poll
     // these calls are a no-op and can be omitted, but it is a good practice to use them in
@@ -224,16 +242,18 @@ int IPStack::write(unsigned char *buffer, int len, int timeout) {
     err_t err = tcp_write(tcp_pcb.get(), buffer, len, TCP_WRITE_FLAG_COPY);
     if (err != ERR_OK) {
         DEBUG_printf("Failed to write data %d\n", err);
+        rv = -1;
     }
     // headers suggest that this should be called to make sure that data is sent right away
     // however there is TCB_WRITE_FLAG_MORE that possibly indicates the same thing??
     if (tcp_output(tcp_pcb.get()) != ERR_OK) {
         // failed! What should I do now?
+        rv = -2;
     }
 
     cyw43_arch_lwip_end();
 
-    return ERR_OK;
+    return rv;
 }
 
 int IPStack::disconnect() {
