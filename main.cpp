@@ -107,8 +107,8 @@ int main() {
     }
 #endif
 
-    IPStack ipstack;
-    MQTT::Client<IPStack, Countdown> client = MQTT::Client<IPStack, Countdown>(ipstack);
+    IPStack ipstack("SSID", "PASSWORD");
+    auto client = MQTT::Client<IPStack, Countdown>(ipstack);
 
     int rc = ipstack.connect("192.168.1.10", 1883);
     if (rc != 1) {
@@ -118,7 +118,7 @@ int main() {
     printf("MQTT connecting\n");
     MQTTPacket_connectData data = MQTTPacket_connectData_initializer;
     data.MQTTVersion = 3;
-    data.clientID.cstring = (char *) "arduino-sample";
+    data.clientID.cstring = (char *) "PicoW-sample";
     rc = client.connect(data);
     if (rc != 0) {
         printf("rc from MQTT connect is %d\n", rc);
@@ -131,11 +131,12 @@ int main() {
     }
     printf("MQTT subscribed\n");
 
-    auto modbus_poll = make_timeout_time_ms(3000);
-    auto mqtt_send = make_timeout_time_ms(5000);
+    //auto modbus_poll = make_timeout_time_ms(3000);
+    auto mqtt_send = make_timeout_time_ms(2000);
     int mqtt_qos = 0;
 
     while (true) {
+#if 0
         if (time_reached(modbus_poll)) {
             // Read 1 holding registers from address 256
             uint16_t r_regs[2];
@@ -149,9 +150,17 @@ int main() {
                 modbus_poll = delayed_by_ms(modbus_poll, 3000);
             }
         }
+#endif
         if (time_reached(mqtt_send)) {
-            mqtt_send = delayed_by_ms(mqtt_send, 5000);
+            mqtt_send = delayed_by_ms(mqtt_send, 2000);
+            if (!client.isConnected()) {
+                printf("Not connected...\n");
+                rc = client.connect(data);
+                if (rc != 0) {
+                    printf("rc from MQTT connect is %d\n", rc);
+                }
 
+            }
             char buf[100];
             int rc = 0;
             MQTT::Message message;
@@ -175,7 +184,8 @@ int main() {
                     message.qos = MQTT::QOS1;
                     message.payloadlen = strlen(buf) + 1;
                     rc = client.publish(topic, message);
-                    ++mqtt_qos;
+                    //++mqtt_qos;
+                    mqtt_qos = 0; // seems that QoS2 message breaks connection - socket issue?
                     break;
                 case 2:
                     // Send and receive QoS 2 message
