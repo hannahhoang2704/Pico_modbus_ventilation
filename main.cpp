@@ -10,6 +10,8 @@
 #include "IPStack.h"
 #include "Countdown.h"
 #include "MQTTClient.h"
+#include "ModbusClient.h"
+#include "ModbusRegister.h"
 
 #define STRLEN 80
 
@@ -73,44 +75,19 @@ int main() {
 
     printf("\nBoot\n");
 
-    PicoUart uart(UART_NR, UART_TX_PIN, UART_RX_PIN, BAUD_RATE);
-    sleep_ms(100);
-    printf("Flushed: %d\n", uart.flush());
-    // my_transport_read() and my_transport_write() are implemented by the user
-    nmbs_platform_conf platform_conf;
-    platform_conf.transport = NMBS_TRANSPORT_RTU;
-    platform_conf.read = uart_transport_read;
-    platform_conf.write = uart_transport_write;
-    platform_conf.arg = (void *) &uart;    // Passing our uart handle to the read/write functions
+    //PicoUart uart(UART_NR, UART_TX_PIN, UART_RX_PIN, BAUD_RATE);
+    //sleep_ms(100);
+    //printf("Flushed: %d\n", uart.flush());
+    auto uart = std::make_shared<PicoUart>(UART_NR, UART_TX_PIN, UART_RX_PIN, BAUD_RATE);
+    auto rtu_client = std::make_shared<ModbusClient>(uart);
+    ModbusRegister rh(rtu_client, 241, 256);
 
-    // Create the modbus client
-    nmbs_t nmbs;
-    // client create clears the structure so we need to set parameters after calling create
-    nmbs_error err = nmbs_client_create(&nmbs, &platform_conf);
-    if (err != NMBS_ERROR_NONE) {
-        fprintf(stderr, "Error creating modbus client\n");
-        return 1;
-    }
-    nmbs_set_destination_rtu_address(&nmbs, 241);
-    // Set only the response timeout.
-    nmbs_set_read_timeout(&nmbs, 1000);
-    // set byte timeout. Standard says 1.5 x byte time between chars and 3.5 x byte time to end frame
-    // so we choose 3 x byte time --> 3 ms @ 9600bps
-    nmbs_set_byte_timeout(&nmbs, 3);
-#if 0
-    // Write 2 holding registers at address 26
-    uint16_t w_regs[2] = {123, 124};
-    err = nmbs_write_multiple_registers(&nmbs, 26, 2, w_regs);
-    if (err != NMBS_ERROR_NONE) {
-        fprintf(stderr, "Error writing register at address 26 - %s", nmbs_strerror(err));
-        return 1;
-    }
-#endif
-
-    IPStack ipstack("SSID", "PASSWORD");
+    //IPStack ipstack("SSID", "PASSWORD"); // example
+    IPStack ipstack("KME662", "SmartIot"); // example
+    //IPStack ipstack("DSP_INTRA", "deadbeef42");
     auto client = MQTT::Client<IPStack, Countdown>(ipstack);
 
-    int rc = ipstack.connect("192.168.1.10", 1883);
+    int rc = ipstack.connect("192.168.1.163", 1883);
     if (rc != 1) {
         printf("rc from TCP connect is %d\n", rc);
     }
@@ -131,26 +108,15 @@ int main() {
     }
     printf("MQTT subscribed\n");
 
-    //auto modbus_poll = make_timeout_time_ms(3000);
+    auto modbus_poll = make_timeout_time_ms(3000);
     auto mqtt_send = make_timeout_time_ms(2000);
     int mqtt_qos = 0;
 
     while (true) {
-#if 0
         if (time_reached(modbus_poll)) {
-            // Read 1 holding registers from address 256
-            uint16_t r_regs[2];
-            err = nmbs_read_holding_registers(&nmbs, 256, 1, r_regs);
-            if (err != NMBS_ERROR_NONE) {
-                fprintf(stderr, "Error reading 1 holding registers at address 256 - %s\n", nmbs_strerror(err));
-                //return 1;
-                modbus_poll = delayed_by_ms(modbus_poll, 100); // try again after 100ms
-            } else {
-                printf("RH=%5.1f%%\n", r_regs[0] / 10.0);
-                modbus_poll = delayed_by_ms(modbus_poll, 3000);
-            }
+            modbus_poll = delayed_by_ms(modbus_poll, 3000);
+            printf("RH=%5.1f%%\n", rh.read() / 10.0);
         }
-#endif
         if (time_reached(mqtt_send)) {
             mqtt_send = delayed_by_ms(mqtt_send, 2000);
             if (!client.isConnected()) {
@@ -184,16 +150,20 @@ int main() {
                     message.qos = MQTT::QOS1;
                     message.payloadlen = strlen(buf) + 1;
                     rc = client.publish(topic, message);
-                    //++mqtt_qos;
-                    mqtt_qos = 0; // seems that QoS2 message breaks connection - socket issue?
+                    ++mqtt_qos;
+                    //mqtt_qos = 0; // seems that QoS2 message breaks connection - socket issue?
                     break;
                 case 2:
+#ifdef MQTTCLIENT_QOS2
+#if MQTTCLIENT_QOS2
                     // Send and receive QoS 2 message
                     sprintf(buf, "Hello World!  QoS 2 message");
                     printf("%s\n", buf);
                     message.qos = MQTT::QOS2;
                     message.payloadlen = strlen(buf) + 1;
                     rc = client.publish(topic, message);
+#endif
+#endif
                     mqtt_qos = 0;
                     break;
                 default:
