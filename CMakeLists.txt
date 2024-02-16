@@ -27,22 +27,22 @@ file(GLOB MQTT_SOURCES "paho.mqtt.embedded-c/MQTTPacket/src/*.c")
 # Tell CMake where to find the executable source file
 add_executable(${PROJECT_NAME}
         main.cpp
-        nanomodbus.h
-        nanomodbus.c
-        PicoUart.cpp
-        PicoUart.h
-        RingBuffer.cpp
-        RingBuffer.h
-        Countdown.cpp
-        Countdown.h
-        IPStack.cpp
-        IPStack.h
-        lwipopts.h
+        modbus/nanomodbus.h
+        modbus/nanomodbus.c
+        uart/PicoUart.cpp
+        uart/PicoUart.h
+        uart/RingBuffer.cpp
+        uart/RingBuffer.h
+        mqtt/Countdown.cpp
+        mqtt/Countdown.h
+        mqtt/IPStack.cpp
+        mqtt/IPStack.h
+        mqtt/lwipopts.h
+        modbus/ModbusRegister.cpp
+        modbus/ModbusRegister.h
+        modbus/ModbusClient.cpp
+        modbus/ModbusClient.h
         ${MQTT_SOURCES}
-        ModbusRegister.cpp
-        ModbusRegister.h
-        ModbusClient.cpp
-        ModbusClient.h
 )
 
 # Create map/bin/hex/uf2 files
@@ -54,7 +54,9 @@ pico_add_extra_outputs(${PROJECT_NAME})
 #        COMMAND ${CMAKE_COMMAND} -E copy ${CMAKE_BINARY_DIR}/${PROJECT_NAME}.uf2 d: )
 
 target_include_directories(${PROJECT_NAME} PRIVATE
-        ${CMAKE_CURRENT_LIST_DIR}
+        modbus
+        mqtt
+        uart
         paho.mqtt.embedded-c/MQTTPacket/src
         paho.mqtt.embedded-c/MQTTClient/src
 )
