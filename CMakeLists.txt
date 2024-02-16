@@ -8,7 +8,7 @@ include($ENV{PICO_SDK_PATH}/external/pico_sdk_import.cmake)
 set(PICO_BOARD pico_w)
 
 # Set name of project (as PROJECT_NAME) and C/C   standards
-project(uart_irq C CXX ASM)
+project(pico-modbus C CXX ASM)
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_CXX_STANDARD 17)
 
