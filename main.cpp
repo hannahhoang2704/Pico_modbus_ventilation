@@ -27,7 +27,7 @@
 #define BAUD_RATE 9600
 
 #define USE_MODBUS
-//#define USE_MQTT
+#define USE_MQTT
 
 void messageArrived(MQTT::MessageData &md) {
     MQTT::Message &message = md.message;
@@ -60,7 +60,6 @@ int main() {
 #ifdef USE_MQTT
     //IPStack ipstack("SSID", "PASSWORD"); // example
     IPStack ipstack("KME662", "SmartIot"); // example
-    //IPStack ipstack("DSP_INTRA", "deadbeef42");
     auto client = MQTT::Client<IPStack, Countdown>(ipstack);
 
     int rc = ipstack.connect("192.168.1.10", 1883);
@@ -75,6 +74,9 @@ int main() {
     rc = client.connect(data);
     if (rc != 0) {
         printf("rc from MQTT connect is %d\n", rc);
+        while(true) {
+            tight_loop_contents();
+        }
     }
     printf("MQTT connected\n");
 
