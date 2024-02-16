@@ -20,32 +20,31 @@ IPStack::IPStack(const char *ssid, const char *pw) : count{0}, wr{0}, rd{0}, con
     }
     cyw43_arch_enable_sta_mode();
 
-    printf("Connecting to Wi-Fi...\n");
+    DEBUG_printf("Connecting to Wi-Fi...\n");
     if (cyw43_arch_wifi_connect_timeout_ms(ssid, pw, CYW43_AUTH_WPA2_AES_PSK, 30000)) {
-        printf("failed to connect.\n");
-        return ;
+        DEBUG_printf("Failed to connect.\n");
     } else {
-        printf("Connected.\n");
+        DEBUG_printf("Connected.\n");
     }
 
 }
 
 int IPStack::connect(uint32_t hostname, int port) {
-    return true;
+    return ERR_ARG;
 }
 
 int IPStack::connect(const char *hostname, int port) {
     // check if the hostname requires DNS resolution
     if (!ip4addr_aton(hostname, &remote_addr)) {
         // dns not implemented yet
-        return 0;
+        return ERR_ARG;
     }
     // open a socket connection
     DEBUG_printf("Connecting to %s port %u\n", ip4addr_ntoa(&remote_addr), port);
     tcp_pcb = std::unique_ptr<struct tcp_pcb>(tcp_new_ip_type(IP_GET_TYPE(remote_addr)));
     if (!tcp_pcb) {
         DEBUG_printf("failed to create pcb\n");
-        return false;
+        return ERR_MEM;
     }
 
     tcp_arg(tcp_pcb.get(), this);
@@ -62,7 +61,7 @@ int IPStack::connect(const char *hostname, int port) {
     err_t err = tcp_connect(tcp_pcb.get(), &remote_addr, port, IPStack::tcp_client_connected);
     cyw43_arch_lwip_end();
 
-    return err == ERR_OK;
+    return err;
 }
 
 /** Function prototype for tcp sent callback functions. Called when sent data has
@@ -269,7 +268,7 @@ int IPStack::disconnect() {
         err = tcp_close(tcp_pcb.get());
         if (err != ERR_OK) {
             DEBUG_printf("close failed %d, calling abort\n", err);
-            tcp_abort(tcp_pcb.get());
+            tcp_abort(tcp_pcb.get()); // this deallocates tcp_pcb
             err = ERR_ABRT;
         }
         tcp_pcb = nullptr;
