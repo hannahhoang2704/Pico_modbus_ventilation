@@ -89,6 +89,7 @@ int main() {
 
     auto mqtt_send = make_timeout_time_ms(2000);
     int mqtt_qos = 0;
+    int msg_count = 0;
 #endif
 
 #ifdef USE_MODBUS
@@ -126,7 +127,7 @@ int main() {
             switch (mqtt_qos) {
                 case 0:
                     // Send and receive QoS 0 message
-                    sprintf(buf, "Hello World! QoS 0 message");
+                    sprintf(buf, "Msg nr: %s QoS 0 message", ++msg_count);
                     printf("%s\n", buf);
                     message.qos = MQTT::QOS0;
                     message.payloadlen = strlen(buf) + 1;
@@ -136,7 +137,7 @@ int main() {
                     break;
                 case 1:
                     // Send and receive QoS 1 message
-                    sprintf(buf, "Hello World!  QoS 1 message");
+                    sprintf(buf, "Msg nr: %s QoS 1 message", ++msg_count);
                     printf("%s\n", buf);
                     message.qos = MQTT::QOS1;
                     message.payloadlen = strlen(buf) + 1;
@@ -147,13 +148,13 @@ int main() {
 #if MQTTCLIENT_QOS2
                 case 2:
                     // Send and receive QoS 2 message
-                    sprintf(buf, "Hello World!  QoS 2 message");
+                    sprintf(buf, "Msg nr: %s QoS 2 message", ++msg_count);
                     printf("%s\n", buf);
                     message.qos = MQTT::QOS2;
                     message.payloadlen = strlen(buf) + 1;
                     rc = client.publish(topic, message);
                     printf("Publish rc=%d\n", rc);
-                    mqtt_qos = 0;
+                    ++mqtt_qos;
                     break;
 #endif
                 default:
