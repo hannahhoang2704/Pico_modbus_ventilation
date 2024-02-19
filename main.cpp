@@ -11,6 +11,7 @@
 #include "MQTTClient.h"
 #include "ModbusClient.h"
 #include "ModbusRegister.h"
+#include "ssd1306.h"
 
 // We are using pins 0 and 1, but see the GPIO function select table in the
 // datasheet for information on which other pins can be used.
@@ -28,6 +29,25 @@
 
 #define USE_MODBUS
 #define USE_MQTT
+#define USE_SSD1306
+
+
+#ifdef USE_SSD1306
+static const uint8_t raspberry26x32[] =
+        {0x0, 0x0, 0xe, 0x7e, 0xfe, 0xff, 0xff, 0xff,
+         0xff, 0xff, 0xfe, 0xfe, 0xfc, 0xf8, 0xfc, 0xfe,
+         0xfe, 0xff, 0xff,0xff, 0xff, 0xff, 0xfe, 0x7e,
+         0x1e, 0x0, 0x0, 0x0, 0x80, 0xe0, 0xf8, 0xfd,
+         0xff, 0xff, 0xff, 0xff, 0xff, 0xff,0xff, 0xff,
+         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfd,
+         0xf8, 0xe0, 0x80, 0x0, 0x0, 0x1e, 0x7f, 0xff,
+         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+         0xff, 0xff, 0xff, 0xff, 0x7f, 0x1e, 0x0, 0x0,
+         0x0, 0x3, 0x7, 0xf, 0x1f, 0x1f, 0x3f, 0x3f,
+         0x7f, 0xff, 0xff, 0xff, 0xff, 0x7f, 0x7f, 0x3f,
+         0x3f, 0x1f, 0x1f, 0xf, 0x7, 0x3, 0x0, 0x0 };
+#endif
 
 void messageArrived(MQTT::MessageData &md) {
     MQTT::Message &message = md.message;
@@ -56,6 +76,20 @@ int main() {
     stdio_init_all();
 
     printf("\nBoot\n");
+#ifdef USE_SSD1306
+    // I2C is "open drain",
+    // pull ups to keep signal high when no data is being sent
+    i2c_init(i2c1, 400 * 1000);
+    gpio_set_function(14, GPIO_FUNC_I2C); // the display has external pull-ups
+    gpio_set_function(15, GPIO_FUNC_I2C); // the display has external pull-ups
+    ssd1306 display(i2c1);
+    display.fill(0);
+    display.text("Hello", 0, 0);
+    mono_vlsb rb(raspberry26x32, 26, 32);
+    display.blit(rb, 20, 20);
+    display.show();
+#endif
+
 
 #ifdef USE_MQTT
     //IPStack ipstack("SSID", "PASSWORD"); // example
@@ -74,7 +108,7 @@ int main() {
     rc = client.connect(data);
     if (rc != 0) {
         printf("rc from MQTT connect is %d\n", rc);
-        while(true) {
+        while (true) {
             tight_loop_contents();
         }
     }
@@ -93,8 +127,8 @@ int main() {
 #endif
 
 #ifdef USE_MODBUS
-    auto uart { std::make_shared<PicoUart>(UART_NR, UART_TX_PIN, UART_RX_PIN, BAUD_RATE) };
-    auto rtu_client { std::make_shared<ModbusClient>(uart) };
+    auto uart{std::make_shared<PicoUart>(UART_NR, UART_TX_PIN, UART_RX_PIN, BAUD_RATE)};
+    auto rtu_client{std::make_shared<ModbusClient>(uart)};
     ModbusRegister rh(rtu_client, 241, 256);
     auto modbus_poll = make_timeout_time_ms(3000);
 #endif
@@ -146,16 +180,16 @@ int main() {
                     ++mqtt_qos;
                     break;
 #if MQTTCLIENT_QOS2
-                case 2:
-                    // Send and receive QoS 2 message
-                    sprintf(buf, "Msg nr: %s QoS 2 message", ++msg_count);
-                    printf("%s\n", buf);
-                    message.qos = MQTT::QOS2;
-                    message.payloadlen = strlen(buf) + 1;
-                    rc = client.publish(topic, message);
-                    printf("Publish rc=%d\n", rc);
-                    ++mqtt_qos;
-                    break;
+                    case 2:
+                        // Send and receive QoS 2 message
+                        sprintf(buf, "Msg nr: %s QoS 2 message", ++msg_count);
+                        printf("%s\n", buf);
+                        message.qos = MQTT::QOS2;
+                        message.payloadlen = strlen(buf) + 1;
+                        rc = client.publish(topic, message);
+                        printf("Publish rc=%d\n", rc);
+                        ++mqtt_qos;
+                        break;
 #endif
                 default:
                     mqtt_qos = 0;

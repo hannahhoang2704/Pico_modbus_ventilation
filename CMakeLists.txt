@@ -43,6 +43,12 @@ add_executable(${PROJECT_NAME}
         modbus/ModbusClient.cpp
         modbus/ModbusClient.h
         ${MQTT_SOURCES}
+        display/framebuf.cpp
+        display/framebuf.h
+        display/mono_vlsb.cpp
+        display/mono_vlsb.h
+        display/ssd1306.cpp
+        display/ssd1306.h
 )
 
 # Create map/bin/hex/uf2 files
@@ -57,6 +63,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
         modbus
         mqtt
         uart
+        display
         paho.mqtt.embedded-c/MQTTPacket/src
         paho.mqtt.embedded-c/MQTTClient/src
 )
@@ -64,7 +71,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 # Link to pico_stdlib (gpio, time, etc. functions)
 target_link_libraries(${PROJECT_NAME} 
         pico_stdlib
-        hardware_pwm
+        hardware_i2c
         hardware_gpio
         pico_cyw43_arch_lwip_poll
 )
