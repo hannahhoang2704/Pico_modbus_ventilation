@@ -87,6 +87,9 @@ int main() {
     display.text("Hello", 0, 0);
     mono_vlsb rb(raspberry26x32, 26, 32);
     display.blit(rb, 20, 20);
+    display.rect(15, 15, 35, 45, 1);
+    display.line(60, 5, 120, 60, 1);
+    display.line(60, 60, 120, 5, 1);
     display.show();
 #endif
 
