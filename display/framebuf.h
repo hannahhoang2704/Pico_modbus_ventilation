@@ -20,6 +20,7 @@ public:
     void text(const char *str, uint16_t x, uint16_t y, uint32_t color = 1);
     void text(const std::string &str, uint16_t x, uint16_t y, uint32_t color = 1);
     void blit(framebuf &fb, int16_t x, int16_t y, uint32_t key = 0xFFFF, const framebuf *palette = nullptr);
+    void scroll(int16_t xstep, int16_t ystep);
 private:
     virtual void setpixel(uint16_t x, uint16_t y, uint32_t color) = 0;
     virtual uint32_t getpixel(uint16_t x, uint16_t y) const = 0;

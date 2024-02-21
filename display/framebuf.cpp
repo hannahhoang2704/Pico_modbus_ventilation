@@ -188,3 +188,43 @@ void framebuf::blit(framebuf &source, int16_t x, int16_t y, uint32_t key, const 
 
 }
 
+void framebuf::scroll(int16_t xstep, int16_t ystep) {
+    int sx, y, xend, yend, dx, dy;
+    if (xstep < 0) {
+        sx = 0;
+        xend = width + xstep;
+        if (xend <= 0) {
+            return;
+        }
+        dx = 1;
+    } else {
+        sx = width - 1;
+        xend = xstep - 1;
+        if (xend >= sx) {
+            return;
+        }
+        dx = -1;
+    }
+    if (ystep < 0) {
+        y = 0;
+        yend = height + ystep;
+        if (yend <= 0) {
+            return;
+        }
+        dy = 1;
+    } else {
+        y = height - 1;
+        yend = ystep - 1;
+        if (yend >= y) {
+            return;
+        }
+        dy = -1;
+    }
+    for (; y != yend; y += dy) {
+        for (int x = sx; x != xend; x += dx) {
+            setpixel(x, y, getpixel(x - xstep, y - ystep));
+        }
+    }
+
+}
+
