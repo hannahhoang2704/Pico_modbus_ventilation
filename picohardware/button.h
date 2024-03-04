@@ -26,7 +26,7 @@ public:
     uint get_pin(){return pin_nr;}
 private:
     uint pin_nr;
-//    bool pressed= false;
+    bool pressed;
 };
 
 void init_rotary_knob();
