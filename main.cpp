@@ -68,27 +68,32 @@ static uint8_t pressure = 0, mode = 0, speed = 0;
 static void rot_handler(uint gpio, uint32_t event_mask) {
     static uint64_t prev_event_time = 0;
     uint64_t curr_time = time_us_64();
-    if (gpio == ROT_A && !gpio_get(ROT_B)) {
-        if(menu == 0){          //mode selection screen
-            if(mode < 1){
-                mode = 1;
+    if (curr_time - prev_event_time > EVENT_DEBOUNCE_US){
+        prev_event_time = curr_time;
+        if (gpio == ROT_A){
+            if(!gpio_get(ROT_B)) {
+                if (menu == 0) {          //mode selection screen
+                    mode++;
+                    mode%=2;
+                    printf("rotate clockwise, mode %d", mode);
+                } else if (menu == 1 && mode == 0) {   //pressure adjustment screen
+                    if (pressure < 100) pressure++;
+                } else if (menu == 1 && mode == 1) {
+                    if (speed < 100) speed++;
+                }
+            }else{
+                if(menu == 0){
+//                    if(mode >= 1) mode = 0;
+                        mode--;
+                        mode = abs(mode)%2;
+                        printf("rotate anticlockwise, mode %d", mode);
+                }else if(menu == 1 && mode == 0){
+                    if(pressure > 0) pressure--;
+                }else if(menu == 1 && mode == 1){
+                    if(speed > 0) speed--;
+                }
             }
-        }else if (menu == 1 && mode == 0){   //pressure adjustment screen
-            if(pressure < 100) pressure++;
-        } else if (menu == 1 && mode == 1){
-            if(speed < 100) speed++;
-        }
-    } else if (gpio == ROT_A && gpio_get(ROT_B)) {
-        if(menu == 0){
-            if(mode >= 1) mode = 0;
-        }else if(menu == 1 && mode == 0){
-            if(pressure > 0) pressure--;
-        }else if(menu == 1 && mode == 1){
-            if(speed > 0) speed--;
-        }
-    }else if (gpio == ROT_SW){
-        if (curr_time - prev_event_time > EVENT_DEBOUNCE_US){
-            prev_event_time = curr_time;
+        }else if (gpio == ROT_SW){
             if(menu < 2) menu++;
         }
     }
