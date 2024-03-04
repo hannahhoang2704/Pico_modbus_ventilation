@@ -31,27 +31,11 @@
 #define MAX_PRESSURE 120
 #define BAUD_RATE 9600
 
-#define USE_MODBUS
+//#define USE_MODBUS
 //#define USE_MQTT
 #define USE_SSD1306
-#define EVENT_DEBOUNCE_US 8000
+#define EVENT_DEBOUNCE_US 10000
 
-#ifdef USE_SSD1306
-static const uint8_t raspberry26x32[] =
-        {0x0, 0x0, 0xe, 0x7e, 0xfe, 0xff, 0xff, 0xff,
-         0xff, 0xff, 0xfe, 0xfe, 0xfc, 0xf8, 0xfc, 0xfe,
-         0xfe, 0xff, 0xff,0xff, 0xff, 0xff, 0xfe, 0x7e,
-         0x1e, 0x0, 0x0, 0x0, 0x80, 0xe0, 0xf8, 0xfd,
-         0xff, 0xff, 0xff, 0xff, 0xff, 0xff,0xff, 0xff,
-         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfd,
-         0xf8, 0xe0, 0x80, 0x0, 0x0, 0x1e, 0x7f, 0xff,
-         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-         0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
-         0xff, 0xff, 0xff, 0xff, 0x7f, 0x1e, 0x0, 0x0,
-         0x0, 0x3, 0x7, 0xf, 0x1f, 0x1f, 0x3f, 0x3f,
-         0x7f, 0xff, 0xff, 0xff, 0xff, 0x7f, 0x7f, 0x3f,
-         0x3f, 0x1f, 0x1f, 0xf, 0x7, 0x3, 0x0, 0x0 };
-#endif
 
 void messageArrived(MQTT::MessageData &md) {
     MQTT::Message &message = md.message;
@@ -63,41 +47,61 @@ void messageArrived(MQTT::MessageData &md) {
 
 static const char *topic = "test-topic";
 static uint8_t menu = 0;
-static uint8_t pressure = 0, mode = 0, speed = 0;
+static uint8_t pressure = 0, speed = 0;
+static bool mode =0;
+volatile int count = 0;
+volatile bool pressed = false;
+static int double_rot=0;
 
+//static void rot_handler(uint gpio, uint32_t event_mask) {
+//    static uint64_t prev_event_time = 0;
+//    uint64_t curr_time = time_us_64();
+//    if (curr_time - prev_event_time > EVENT_DEBOUNCE_US){
+//        prev_event_time = curr_time;
+//        if (gpio == ROT_A){
+//            if(!gpio_get(ROT_B)) {
+//                count++;
+////                if (menu == 0) {          //mode selection screen
+////                    mode++;
+////                    printf("rotate clockwise, mode %d", mode);
+////                    mode%=2;
+////                } else if (menu == 1 && mode == 0) {   //pressure adjustment screen
+////                    if (pressure < 100) pressure++;
+////                } else if (menu == 1 && mode == 1) {
+////                    if (speed < 100) speed++;
+////                }
+//            }else{
+//                count--;
+////                if(menu == 0){
+//////                    if(mode >= 1) mode = 0;
+////                        mode--;
+////                        printf("rotate anticlockwise, mode %d", mode);
+////                        mode = abs(mode)%2;
+////                }else if(menu == 1 && mode == 0){
+////                    if(pressure > 0) pressure--;
+////                }else if(menu == 1 && mode == 1){
+////                    if(speed > 0) speed--;
+////                }
+//            }
+//        }else if (gpio == ROT_SW){
+//            if(menu < 2) menu++;
+//        }
+//    }
+//}
 static void rot_handler(uint gpio, uint32_t event_mask) {
-    static uint64_t prev_event_time = 0;
-    uint64_t curr_time = time_us_64();
-    if (curr_time - prev_event_time > EVENT_DEBOUNCE_US){
-        prev_event_time = curr_time;
         if (gpio == ROT_A){
             if(!gpio_get(ROT_B)) {
-                if (menu == 0) {          //mode selection screen
-                    mode++;
-                    mode%=2;
-                    printf("rotate clockwise, mode %d", mode);
-                } else if (menu == 1 && mode == 0) {   //pressure adjustment screen
-                    if (pressure < 100) pressure++;
-                } else if (menu == 1 && mode == 1) {
-                    if (speed < 100) speed++;
-                }
+                count++;
+//                printf("rotate clockwise, mode %d", mode);
             }else{
-                if(menu == 0){
-//                    if(mode >= 1) mode = 0;
-                        mode--;
-                        mode = abs(mode)%2;
-                        printf("rotate anticlockwise, mode %d", mode);
-                }else if(menu == 1 && mode == 0){
-                    if(pressure > 0) pressure--;
-                }else if(menu == 1 && mode == 1){
-                    if(speed > 0) speed--;
-                }
+                count--;
             }
         }else if (gpio == ROT_SW){
-            if(menu < 2) menu++;
+            pressed = true;
+            printf("pressed\n");
         }
     }
-}
+//}
 int main() {
 
     const uint led_pin = 22;
@@ -130,7 +134,7 @@ int main() {
 #ifdef USE_SSD1306
     // I2C is "open drain",
     // pull ups to keep signal high when no data is being sent
-    i2c_init(i2c1, 400 * 1000);
+    i2c_init(i2c1, 100 * 1000);
     gpio_set_function(14, GPIO_FUNC_I2C); // the display has external pull-ups
     gpio_set_function(15, GPIO_FUNC_I2C); // the display has external pull-ups
     auto display = std::make_shared<ssd1306>(i2c1);
@@ -144,6 +148,7 @@ int main() {
 //    display.line(60, 60, 120, 5, 1);
 //    display.show();
     currentScreen screen(display);
+    screen.info(speed, pressure, 32, 25, 200);
 //    screen.modeSelection(0);
 //    sleep_ms(2000);
 //    screen.modeSelection(1);
@@ -162,15 +167,6 @@ int main() {
 //    sleep_ms(2000);
 //    screen.error();
 
-#if 0
-    for(int i = 0; i < 128; ++i) {
-        sleep_ms(50);
-        display.scroll(1, 0);
-        display.show();
-    }
-    display.text("Done", 20, 20);
-    display.show();
-#endif
 
 #endif
 
@@ -217,25 +213,77 @@ int main() {
     auto modbus_poll = make_timeout_time_ms(3000);
 #endif
     while (true) {
-        if(menu==0){
-            screen.modeSelection(mode);
-        }else if(menu==1 && mode == 0){
-            screen.paramSet(mode, pressure);
-        }else if(menu==1 && mode == 1){
-            screen.paramSet(mode, speed);
-        }else if(menu==2){
-            screen.info(speed, pressure, 25, 30, 300);
+//        if(menu==0){
+//            screen.modeSelection(mode);
+//        }else if(menu==1 && mode == 0){
+//            screen.paramSet(mode, pressure);
+//        }else if(menu==1 && mode == 1){
+//            screen.paramSet(mode, speed);
+//        }else if(menu==2){
+//            screen.info(speed, pressure, 25, 30, 300);
+//        }
+        if (count!=0){
+            if(menu==0){
+                if(++double_rot==4){
+                    mode = !mode;
+                    screen.modeSelection(mode);
+                    double_rot=0;
+                }
+            }else if(menu==1){
+                if(count>0){
+                    if(!mode){
+                        pressure<MAX_PRESSURE?++pressure:MAX_PRESSURE;
+                        screen.paramSet(mode, pressure);
+                    }else{
+                        speed<MAX_FAN_SPEED?++speed:MAX_FAN_SPEED;
+                        screen.paramSet(mode, speed);
+                    }
+                }else{
+                    if(!mode){
+                        pressure>0?--pressure:0;
+                        screen.paramSet(mode, pressure);
+                    }else{
+                        speed>0?--speed:0;
+                        screen.paramSet(mode, speed);
+                    }
+                }
+            }
+            count=0;
+        }
+        if (pressed){
+            sleep_ms(30);
+            if(!gpio_get(ROT_SW)){
+                printf("debug\n");
+                if(menu<2)menu++;
+                printf("menu %d", menu);
+                if(menu==1){
+                    if(!mode){
+                        screen.paramSet(mode, pressure);
+                    }else{
+                        screen.paramSet(mode, speed);
+                    }
+                }
+                if(menu == 2){
+                    screen.info(speed, pressure, 25, 30, 300);
+                }
+            }
+            pressed= false;
         }
         if(sw2.debounced_pressed()){
             menu = 0;
+            screen.modeSelection(mode);
+            while(!gpio_get(sw2.get_pin()))sleep_ms(10);
         }
         if(sw1.debounced_pressed()){
             menu = 1;
+            screen.paramSet(mode, speed);
+            while(!gpio_get(sw1.get_pin()))sleep_ms(10);
         }
         if(sw0.debounced_pressed()){
             menu = 2;
+            screen.info(speed, pressure, 23,45,300);
+            while(!gpio_get(sw0.get_pin()))sleep_ms(10);
         }
-
 #ifdef USE_MODBUS
         if (time_reached(modbus_poll)) {
             gpio_put(led_pin, !gpio_get(led_pin)); // toggle  led

@@ -9,11 +9,20 @@ void Button::init_pin() {
     gpio_pull_up(pin_nr);
 }
 
+//bool Button::debounced_pressed() {
+//    if (!gpio_get(pin_nr) && !pressed) {
+//        return (pressed = true);
+//    } else if (gpio_get(pin_nr) && pressed) {
+//        pressed = false;
+//    }
+//    return false;
+//}
 bool Button::debounced_pressed() {
-    if (!gpio_get(pin_nr) && !pressed) {
-        return (pressed = true);
-    } else if (gpio_get(pin_nr) && pressed) {
-        pressed = false;
+    if(!gpio_get(pin_nr)){
+        sleep_ms(30);
+        if(!gpio_get(pin_nr)){
+            return true;
+        }
     }
     return false;
 }

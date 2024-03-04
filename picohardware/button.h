@@ -23,9 +23,10 @@ public:
     };
     void init_pin();
     bool debounced_pressed();
+    uint get_pin(){return pin_nr;}
 private:
     uint pin_nr;
-    bool pressed;
+//    bool pressed= false;
 };
 
 void init_rotary_knob();
