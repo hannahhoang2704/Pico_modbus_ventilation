@@ -50,55 +50,23 @@ static uint8_t menu = 0;
 static uint8_t pressure = 0, speed = 0;
 static bool mode =0;
 volatile int count = 0;
-volatile bool pressed = false;
-static int double_rot=0;
+volatile bool knob_pressed = false;
+static int rotating_cnt=0;
 
-//static void rot_handler(uint gpio, uint32_t event_mask) {
-//    static uint64_t prev_event_time = 0;
-//    uint64_t curr_time = time_us_64();
-//    if (curr_time - prev_event_time > EVENT_DEBOUNCE_US){
-//        prev_event_time = curr_time;
-//        if (gpio == ROT_A){
-//            if(!gpio_get(ROT_B)) {
-//                count++;
-////                if (menu == 0) {          //mode selection screen
-////                    mode++;
-////                    printf("rotate clockwise, mode %d", mode);
-////                    mode%=2;
-////                } else if (menu == 1 && mode == 0) {   //pressure adjustment screen
-////                    if (pressure < 100) pressure++;
-////                } else if (menu == 1 && mode == 1) {
-////                    if (speed < 100) speed++;
-////                }
-//            }else{
-//                count--;
-////                if(menu == 0){
-//////                    if(mode >= 1) mode = 0;
-////                        mode--;
-////                        printf("rotate anticlockwise, mode %d", mode);
-////                        mode = abs(mode)%2;
-////                }else if(menu == 1 && mode == 0){
-////                    if(pressure > 0) pressure--;
-////                }else if(menu == 1 && mode == 1){
-////                    if(speed > 0) speed--;
-////                }
-//            }
-//        }else if (gpio == ROT_SW){
-//            if(menu < 2) menu++;
-//        }
-//    }
-//}
 static void rot_handler(uint gpio, uint32_t event_mask) {
+        uint64_t current_time = time_us_64();
+        static uint64_t prev_event_time = 0;
         if (gpio == ROT_A){
             if(!gpio_get(ROT_B)) {
                 count++;
-//                printf("rotate clockwise, mode %d", mode);
             }else{
                 count--;
             }
         }else if (gpio == ROT_SW){
-            pressed = true;
-            printf("pressed\n");
+            if (current_time - prev_event_time > EVENT_DEBOUNCE_US){
+                knob_pressed = true;
+                prev_event_time = current_time;
+            }
         }
     }
 //}
@@ -213,21 +181,12 @@ int main() {
     auto modbus_poll = make_timeout_time_ms(3000);
 #endif
     while (true) {
-//        if(menu==0){
-//            screen.modeSelection(mode);
-//        }else if(menu==1 && mode == 0){
-//            screen.paramSet(mode, pressure);
-//        }else if(menu==1 && mode == 1){
-//            screen.paramSet(mode, speed);
-//        }else if(menu==2){
-//            screen.info(speed, pressure, 25, 30, 300);
-//        }
         if (count!=0){
             if(menu==0){
-                if(++double_rot==4){
+                if(++rotating_cnt == 4){
                     mode = !mode;
                     screen.modeSelection(mode);
-                    double_rot=0;
+                    rotating_cnt=0;
                 }
             }else if(menu==1){
                 if(count>0){
@@ -250,25 +209,32 @@ int main() {
             }
             count=0;
         }
-        if (pressed){
-            sleep_ms(30);
-            if(!gpio_get(ROT_SW)){
-                printf("debug\n");
-                if(menu<2)menu++;
-                printf("menu %d", menu);
-                if(menu==1){
-                    if(!mode){
-                        screen.paramSet(mode, pressure);
-                    }else{
-                        screen.paramSet(mode, speed);
-                    }
+        if(knob_pressed){
+            knob_pressed = false;
+            if(menu<2) menu++;
+            if(menu==1){
+                if(!mode){
+                    screen.paramSet(mode, pressure);
+                }else{
+                    screen.paramSet(mode, speed);
                 }
-                if(menu == 2){
-                    screen.info(speed, pressure, 25, 30, 300);
-                }
+            }else if(menu==2){
+                screen.info(speed, pressure, 25, 30, 300);
             }
-            pressed= false;
         }
+
+//        if(menu==0){
+//            screen.modeSelection(mode);
+//        }else if(menu==1){
+//            if(!mode){
+//                screen.paramSet(mode, pressure);
+//            }else{
+//                screen.paramSet(mode, speed);
+//            }
+//        }else if(menu==2){
+//            screen.info(speed, pressure, 25, 30, 300);
+//        }
+
         if(sw2.debounced_pressed()){
             menu = 0;
             screen.modeSelection(mode);
