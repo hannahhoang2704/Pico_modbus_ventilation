@@ -93,7 +93,7 @@ int main() {
 
     //get data stored from EEPROM
     mode = get_stored_value(MODE_ADDR);
-    if(mode < 0 || mode > 1) mode = 0;
+//    if(mode < 0 || mode > 1) mode = 0;
     speed = get_stored_value(SPEED_ADDR);
     if(speed < 0 || speed > MAX_FAN_SPEED) speed = 0;
     pressure = get_stored_value(PRESSURE_ADDR);
@@ -210,45 +210,30 @@ int main() {
             count=0;
         }
         if(knob_pressed){
-            knob_pressed = false;
             if(menu<2) menu++;
-            if(menu==1){
-                if(!mode){
-                    screen.paramSet(mode, pressure);
-                }else{
-                    screen.paramSet(mode, speed);
-                }
-            }else if(menu==2){
-                screen.info(speed, pressure, 25, 30, 300);
-            }
+            knob_pressed = false;
         }
 
-//        if(menu==0){
-//            screen.modeSelection(mode);
-//        }else if(menu==1){
-//            if(!mode){
-//                screen.paramSet(mode, pressure);
-//            }else{
-//                screen.paramSet(mode, speed);
-//            }
-//        }else if(menu==2){
-//            screen.info(speed, pressure, 25, 30, 300);
-//        }
+        if(menu==0){
+            screen.modeSelection(mode);
+        }else if(menu==1){
+            if(!mode){
+                screen.paramSet(mode, pressure);
+            }else{
+                screen.paramSet(mode, speed);
+            }
+        }else if(menu==2){
+            screen.info(speed, pressure, 25, 30, 300);
+        }
 
         if(sw2.debounced_pressed()){
             menu = 0;
-            screen.modeSelection(mode);
-            while(!gpio_get(sw2.get_pin()))sleep_ms(10);
         }
         if(sw1.debounced_pressed()){
             menu = 1;
-            screen.paramSet(mode, speed);
-            while(!gpio_get(sw1.get_pin()))sleep_ms(10);
         }
         if(sw0.debounced_pressed()){
             menu = 2;
-            screen.info(speed, pressure, 23,45,300);
-            while(!gpio_get(sw0.get_pin()))sleep_ms(10);
         }
 #ifdef USE_MODBUS
         if (time_reached(modbus_poll)) {
