@@ -3,10 +3,10 @@
 //
 #include "screen_selection.h"
 
-void currentScreen::modeSelection(const int modeNum) {
+void currentScreen::modeSelection(const bool modeAuto) {
     lcd->fill(0);
     lcd->text("SELECT MODE", 20, 1);
-    if (!modeNum){   //auto mode
+    if (modeAuto){   //auto mode
         color1 = 0;
         color2 = 1;
         lcd->fill_rect(0, 15, 128, 20, 1);

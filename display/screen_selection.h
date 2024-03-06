@@ -10,7 +10,7 @@
 class currentScreen{
 public:
     explicit currentScreen(const std::shared_ptr<ssd1306> &lcd): lcd(lcd), color1(0), color2(0){};
-    void modeSelection (int modeNum=0);
+    void modeSelection (bool modeAuto = false);
     void paramSet(int mode, int val);
     void info(int speed, int pressure, int temp, int humid, int co2);
     void error();
