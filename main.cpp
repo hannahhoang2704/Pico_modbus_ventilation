@@ -33,7 +33,7 @@
 #define BAUD_RATE 9600
 
 //#define USE_MODBUS
-//#define USE_MQTT
+#define USE_MQTT
 #define USE_SSD1306
 #define EVENT_DEBOUNCE_US 8000
 #define QUEUE_SIZE 1
@@ -41,13 +41,18 @@
 
 void messageArrived(MQTT::MessageData &md) {
     MQTT::Message &message = md.message;
+    char payload_str[message.payloadlen +1];
+    memcpy(payload_str, message.payload, message.payloadlen);
+    payload_str[message.payloadlen] = '\0';
 
     printf("Message arrived: qos %d, retained %d, dup %d, packetid %d\n",
            message.qos, message.retained, message.dup, message.id);
     printf("Payload %s\n", (char *) message.payload);
 }
 
-static const char *topic = "test-topic";
+//static const char *topic = "test-topic";
+static const char *pub_topic = "hannah/controller/status";
+static const char *sub_topic = "hannah/controller/settings";
 static uint8_t menu = 0;
 volatile bool autoMode = false;
 volatile int pressure = 0;
@@ -155,10 +160,16 @@ int main() {
 
 #ifdef USE_MQTT
     //IPStack ipstack("SSID", "PASSWORD"); // example
-    IPStack ipstack("KME662", "SmartIot"); // example
+//    IPStack ipstack("KME662", "SmartIot"); // example
+//    IPStack ipstack("metropolia-secure", "Q5-9k195"); // example
+    IPStack ipstack("Nadim", "nadimahmed"); // example
+//    IPStack ipstack("SmartIotMQTT", "SmartIot"); // example
     auto client = MQTT::Client<IPStack, Countdown>(ipstack);
 
-    int rc = ipstack.connect("192.168.1.10", 1883);
+//    int rc = ipstack.connect("192.168.1.10", 1883);
+//    int rc = ipstack.connect("192.168.137.55", 1883);
+    int rc = ipstack.connect("172.20.10.3", 1883);
+
     if (rc != 1) {
         printf("rc from TCP connect is %d\n", rc);
     }
@@ -166,7 +177,7 @@ int main() {
     printf("MQTT connecting\n");
     MQTTPacket_connectData data = MQTTPacket_connectData_initializer;
     data.MQTTVersion = 3;
-    data.clientID.cstring = (char *) "PicoW-sample";
+    data.clientID.cstring = (char *) "PicoW-hannah";
     rc = client.connect(data);
     if (rc != 0) {
         printf("rc from MQTT connect is %d\n", rc);
@@ -177,7 +188,7 @@ int main() {
     printf("MQTT connected\n");
 
     // We subscribe QoS2. Messages sent with lower QoS will be delivered using the QoS they were sent with
-    rc = client.subscribe(topic, MQTT::QOS2, messageArrived);
+    rc = client.subscribe(sub_topic, MQTT::QOS2, messageArrived);
     if (rc != 0) {
         printf("rc from MQTT subscribe is %d\n", rc);
     }
@@ -282,7 +293,7 @@ int main() {
                 }
 
             }
-            char buf[100];
+            char buf[100]="Message sent";
             int rc = 0;
             MQTT::Message message;
             message.retained = false;
@@ -291,11 +302,11 @@ int main() {
             switch (mqtt_qos) {
                 case 0:
                     // Send and receive QoS 0 message
-                    sprintf(buf, "Msg nr: %s QoS 0 message", ++msg_count);
+//                    sprintf(buf, "Msg nr: %s QoS 0 message", ++msg_count);
                     printf("%s\n", buf);
                     message.qos = MQTT::QOS0;
                     message.payloadlen = strlen(buf) + 1;
-                    rc = client.publish(topic, message);
+                    rc = client.publish(pub_topic, message);
                     printf("Publish rc=%d\n", rc);
                     ++mqtt_qos;
                     break;
@@ -305,7 +316,7 @@ int main() {
                     printf("%s\n", buf);
                     message.qos = MQTT::QOS1;
                     message.payloadlen = strlen(buf) + 1;
-                    rc = client.publish(topic, message);
+                    rc = client.publish(pub_topic, message);
                     printf("Publish rc=%d\n", rc);
                     ++mqtt_qos;
                     break;
@@ -316,7 +327,7 @@ int main() {
                         printf("%s\n", buf);
                         message.qos = MQTT::QOS2;
                         message.payloadlen = strlen(buf) + 1;
-                        rc = client.publish(topic, message);
+                        rc = client.publish(pub_topic, message);
                         printf("Publish rc=%d\n", rc);
                         ++mqtt_qos;
                         break;

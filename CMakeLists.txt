@@ -51,6 +51,9 @@ add_executable(${PROJECT_NAME}
         display/ssd1306.h
         display/screen_selection.cpp
         picohardware/button.cpp
+        picohardware/button.h
+        picohardware/eeprom.cpp
+        picohardware/eeprom.h
 )
 
 # Create map/bin/hex/uf2 files
@@ -66,6 +69,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
         mqtt
         uart
         display
+        picohardware
         paho.mqtt.embedded-c/MQTTPacket/src
         paho.mqtt.embedded-c/MQTTClient/src
 )
