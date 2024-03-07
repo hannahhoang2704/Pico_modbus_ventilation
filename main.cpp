@@ -39,6 +39,9 @@
 #define QUEUE_SIZE 1
 #define TIMEOUT 60000000    //60s
 
+volatile bool mqtt_mode;
+volatile int mqtt_value;
+
 void messageArrived(MQTT::MessageData &md) {
     MQTT::Message &message = md.message;
     char payload_str[message.payloadlen +1];
@@ -47,7 +50,17 @@ void messageArrived(MQTT::MessageData &md) {
 
     printf("Message arrived: qos %d, retained %d, dup %d, packetid %d\n",
            message.qos, message.retained, message.dup, message.id);
-    printf("Payload %s\n", (char *) message.payload);
+//    printf("Payload %s\n", (char *) message.payload);
+    printf("Payload %s", (char *)payload_str);
+
+    //extract mode and value from arrived message in format `{"auto": true, "pressure": 10}`
+    //need to test out if it's working//
+    char* auto_mode = strstr(payload_str, "\"auto\":");
+    if (auto_mode != NULL){
+        mqtt_mode = (*(auto_mode + 8) == 't');
+    }
+    sscanf(payload_str, "%*[^0-9]%d", &mqtt_value);
+    printf("Mqtt mode: %d, received value: %d\n", mqtt_mode, mqtt_value);
 }
 
 //static const char *topic = "test-topic";
@@ -138,22 +151,6 @@ int main() {
     auto display = std::make_shared<ssd1306>(i2c1);
     currentScreen screen(display);
     screen.modeSelection(autoMode);
-//    sleep_ms(2000);
-//    screen.modeSelection(1);
-//    sleep_ms(2000);
-//    for (int i=0;i<121;i++){
-//        screen.paramSet(0,i);
-//        sleep_ms(50);
-//    }
-//    sleep_ms(2000);
-//    for (int i=0;i<101;i++){
-//        screen.paramSet(1,i);
-//        sleep_ms(50);
-//    }
-//    sleep_ms(2000);
-//    screen.info(100, 100, 20, 50, 100);
-//    sleep_ms(2000);
-//    screen.error();
 
 #endif
 
@@ -161,14 +158,12 @@ int main() {
 #ifdef USE_MQTT
     //IPStack ipstack("SSID", "PASSWORD"); // example
 //    IPStack ipstack("KME662", "SmartIot"); // example
-//    IPStack ipstack("metropolia-secure", "Q5-9k195"); // example
-    IPStack ipstack("Nadim", "nadimahmed"); // example
+    IPStack ipstack("Hanh's iPhone", "abcdehannah"); // example
 //    IPStack ipstack("SmartIotMQTT", "SmartIot"); // example
     auto client = MQTT::Client<IPStack, Countdown>(ipstack);
 
 //    int rc = ipstack.connect("192.168.1.10", 1883);
-//    int rc = ipstack.connect("192.168.137.55", 1883);
-    int rc = ipstack.connect("172.20.10.3", 1883);
+    int rc = ipstack.connect("172.20.10.7", 1883);
 
     if (rc != 1) {
         printf("rc from TCP connect is %d\n", rc);
