@@ -52,7 +52,9 @@ static int temp = 0, humidity = 0, co2 = 0;
 volatile uint64_t startTimeOut = 0;
 volatile int rotCount = 0;
 volatile bool mqtt_mode;
-volatile int mqtt_value;
+volatile int mqtt_value = -1;
+volatile uint8_t menu = 2;
+bool autoMode = false;
 
 void messageArrived(MQTT::MessageData &md) {
     MQTT::Message &message = md.message;
@@ -72,7 +74,9 @@ void messageArrived(MQTT::MessageData &md) {
         mqtt_mode = (*(auto_mode + 8) == 't');
     }
     sscanf(payload_str, "%*[^0-9]%d", &mqtt_value);
-    printf("Mqtt mode: %d, received value: %d\n", mqtt_mode, mqtt_value);
+    printf("autoMode: %d, setpoint: %d\n", mqtt_mode, mqtt_value);
+    autoMode = mqtt_mode;
+    menu = 2;
 }
 
 // rotary encoder interrupt handler
@@ -110,10 +114,9 @@ void getPressure(int *pressure){
 
 int main() {
 
-    static uint8_t menu = 2;
-    bool autoMode = false;
     int pressure = 0;
     float speed = 0;
+
     int speedInt = 0;
     int valP = pressure;
     int valS = speedInt;
@@ -123,7 +126,7 @@ int main() {
     int setPointP_H = 0; //upper limit pressure
     uint16_t fanDelay = 200;  //delay time after setting fan speed
     uint8_t measureCount = 0;   //count number of measure that does not get desired pressure
-    uint8_t eepromBuff[1];
+    uint8_t eepromBuff[2];
     bool error = false;
 
     // Initialize hw
@@ -145,18 +148,26 @@ int main() {
 
     //get data stored from EEPROM
     autoMode = get_stored_value(MODE_ADDR);
+    printf("debug: autoMode VAlue: %d\n", autoMode);
+    if (autoMode != 0 || autoMode != 1){
+        autoMode = true;
+        eepromBuff[0] = autoMode;
+        write_to_eeprom(MODE_ADDR, eepromBuff, 1);
+    }
     if (autoMode){
-        pressure = get_stored_value(PRESSURE_ADDR);
-        if(pressure < 0 || pressure > MAX_PRESSURE) pressure = 0;
-        speed = getSpeed(pressure);
-        setPoint = pressure;
+        setPoint = get_stored_value(PRESSURE_ADDR);
+        if(setPoint < 0 || setPoint > MAX_PRESSURE) setPoint = 0;
+        speed = getSpeed(setPoint);
         setPointP_H = setPoint + OFFSET > MAX_PRESSURE ? MAX_PRESSURE:setPoint + OFFSET;
         setPointP_L = setPoint - OFFSET < 0 ? 0:setPoint - OFFSET;
+        printf("debug: setpointP %d\n", setPoint);
     }
     else{
-        speed = get_stored_value(SPEED_ADDR);
+        speed = (float )get_stored_value(SPEED_ADDR);
         if(speed < 0 || speed > MAX_FAN_SPEED) speed = 0;
         pressure = 0;
+        setPoint = (int)speed;
+        printf("debug: setpointS %d\n", setPoint);
     }
 #ifdef USE_SSD1306
     // I2C is "open drain",
@@ -199,7 +210,6 @@ int main() {
     printf("MQTT subscribed\n");
 
     auto mqtt_send = make_timeout_time_ms(3000);
-    int mqtt_qos = 0;
     int msg_count = 0;
 #endif
 
@@ -212,10 +222,13 @@ int main() {
     ModbusRegister fanSpeed(rtu_client, 1, 0);
 
     sleep_ms(100);
-    if (speed > 0){
-        fanSpeed.write(500);
+    if ((int)speed > 8){
+        if ((int)speed < 30){
+            fanSpeed.write(300);
+            sleep_ms(100);
+        }
+        fanSpeed.write(mqtt_value*10);
         sleep_ms(100);
-        fanSpeed.write((int)speed*10);
     }
     sleep_ms(100);
     auto modbus_poll = make_timeout_time_ms(3000);
@@ -262,6 +275,33 @@ int main() {
         }
         else if(menu == 2){
             screen.info(autoMode,(float )speed, pressure, temp, humidity, co2);
+            if (mqtt_value >= 0){
+                eepromBuff[0] = autoMode;
+                write_to_eeprom(MODE_ADDR, eepromBuff, 1);
+                if (autoMode){
+                    setPoint = mqtt_value;
+                    setPointP_H = setPoint + OFFSET > MAX_PRESSURE ? MAX_PRESSURE:setPoint + OFFSET;
+                    setPointP_L = setPoint - OFFSET < 0 ? 0:setPoint - OFFSET;
+                    speed = getSpeed(setPoint);
+                    eepromBuff[0] = setPoint;
+                    write_to_eeprom(PRESSURE_ADDR, eepromBuff, 1);
+                }
+                else{
+                    setPoint = mqtt_value;
+                    speed = (float ) mqtt_value;
+                    eepromBuff[0] = setPoint;
+                    write_to_eeprom(SPEED_ADDR, eepromBuff, 1);
+                }
+                if ((int)speed > 8){
+                    if ((int)speed < 30){
+                        fanSpeed.write(300);
+                        sleep_ms(100);
+                    }
+                    fanSpeed.write(mqtt_value*10);
+                    sleep_ms(100);
+                }
+                mqtt_value = -1;
+            }
         }
         else{
             screen.error();
@@ -287,12 +327,15 @@ int main() {
                         write_to_eeprom(MODE_ADDR, eepromBuff, 1);
                     } else if (menu == 1){
                         if (autoMode){
+                            measureCount = 0;
                             setPoint = valP;
                             setPointP_H = setPoint + OFFSET > MAX_PRESSURE ? MAX_PRESSURE:setPoint + OFFSET;
                             setPointP_L = setPoint - OFFSET < 0 ? 0:setPoint - OFFSET;
                             speed = getSpeed(setPoint);
-                            fanSpeed.write(500);
-                            sleep_ms(100);
+                            if ((int)speed < 30){
+                                fanSpeed.write(300);
+                                sleep_ms(100);
+                            }
                             fanSpeed.write((int)(speed*10));
                             screen.info(autoMode,(float )speed, pressure, temp, humidity, co2);
                             sleep_ms(1000);
@@ -336,8 +379,11 @@ int main() {
                 error = false;
             }
             menu = 1;
-            valP = pressure;
-            valS = (int)speed;
+            if (autoMode){
+                valP = setPoint;
+            } else{
+                valS = setPoint;
+            }
             startTimeOut = time_us_64();
         }
         //handle sw0 switch pressed to change to menu 2
@@ -397,11 +443,12 @@ int main() {
                     speed = (float)speedInt/10;
                     sleep_ms(fanDelay);
                     getPressure(&pressure);
-                    if (menu == 2){
+                    if (menu >= 2){
+                        menu = 2;
                         screen.info(autoMode,(float )speed, (int)setPoint, temp, humidity, co2);
                     }
                 }
-                pressure = (int)setPoint;   // in auto mode, pressure keeps unchanged
+                //pressure = (int)setPoint;   // in auto mode, pressure keeps unchanged
             }
         }
 
@@ -416,48 +463,18 @@ int main() {
                     printf("rc from MQTT connect is %d\n", rc);
                 }
             }
-            //char buf[100]="Message sent";
             // Construct JSON message
             char buf[256];
-            rc = 0;
-            sprintf(buf, R"({"nr": %d, "speed": %.1f, "setpoint": %d, "pressure": %d, "auto": %s, "error": %s, "co2": %d, "rh": %d, "temp": %d})",
-                    ++msg_count, speed, (int)setPoint, pressure, autoMode ? "true" : "false", "false", co2, humidity, temp);
-            //sprintf(buf, R"({"nr":%d,"setpoint":%d,"pressure":%d,"auto":%s,"error":%s})",
-            //        ++msg_count, (int)setPoint, pressure, autoMode ? "true" : "false", error ? "true" : "false");
-
+            sprintf(buf, R"({"nr": %d, "speed": %d, "setpoint": %d, "pressure": %d, "auto": %s, "error": %s, "co2": %d, "rh": %d, "temp": %d})",
+                    ++msg_count, (int)speed, (int)setPoint, pressure, autoMode ? "true" : "false", error ? "true" : "false", co2, humidity, temp);
             MQTT::Message message;
             message.retained = false;
             message.dup = false;
             message.payload = (void *)buf;
-
-            switch (mqtt_qos) {
-                case 0:
-                    message.qos = MQTT::QOS0;
-                    message.payloadlen = strlen(buf) + 1;
-                    rc = client.publish(pub_topic, message);
-                    printf("Publish rc=%d\n", rc);
-                    ++mqtt_qos;
-                    break;
-                case 1:
-                    message.qos = MQTT::QOS1;
-                    message.payloadlen = strlen(buf) + 1;
-                    rc = client.publish(pub_topic, message);
-                    printf("Publish rc=%d\n", rc);
-                    ++mqtt_qos;
-                    break;
-#if MQTTCLIENT_QOS2
-                    case 2:
-                        message.qos = MQTT::QOS2;
-                        message.payloadlen = strlen(buf) + 1;
-                        rc = client.publish(pub_topic, message);
-                        printf("Publish rc=%d\n", rc);
-                        ++mqtt_qos;
-                        break;
-#endif
-                default:
-                    mqtt_qos = 0;
-                    break;
-            }
+            message.qos = MQTT::QOS0;
+            message.payloadlen = strlen(buf);
+            rc = client.publish(pub_topic, message);
+            printf("Publish rc=%d\n", rc);
         }
 
         cyw43_arch_poll(); // obsolete? - see below
