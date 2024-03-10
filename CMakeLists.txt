@@ -51,6 +51,10 @@ add_executable(${PROJECT_NAME}
         display/ssd1306.h
         display/screen_selection.cpp
         picohardware/button.cpp
+        display/icons.h
+        speed_pressure_data.cpp
+        speed_pressure_data.h
+        picohardware/eeprom.cpp
 )
 
 # Create map/bin/hex/uf2 files

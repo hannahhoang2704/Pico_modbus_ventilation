@@ -17,7 +17,7 @@ void write_to_eeprom(uint16_t memory_address, const uint8_t *data, size_t length
         buf[i + EEPROM_ADDR_LEN] = data[i];
     }
     i2c_write_blocking(i2c0, DEVADDR, buf, length + EEPROM_ADDR_LEN, false);
-    sleep_ms(WRITE_CYCLE_TIME_PER_BYTE * (length + EEPROM_ADDR_LEN));
+    sleep_ms(5);
 }
 
 // read an array of data from eeprom
