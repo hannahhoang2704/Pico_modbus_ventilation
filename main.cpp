@@ -38,7 +38,6 @@
 #define USE_MODBUS
 #define USE_MQTT
 #define USE_SSD1306
-#define EVENT_DEBOUNCE_US 8000
 #define TIMEOUT 60000000    //60s
 #define led_pin 22
 #define OFFSET 1
@@ -111,7 +110,7 @@ void getPressure(int *pressure){
 int main() {
 
     static uint8_t menu = 2;
-    bool autoMode = false;
+    volatile bool autoMode = false;
     int pressure = 0;
     float speed = 0;
     int speedInt = 0;
@@ -123,7 +122,6 @@ int main() {
     int setPointP_H = 0; //upper limit pressure
     uint16_t fanDelay = 200;  //delay time after setting fan speed
     uint8_t measureCount = 0;   //count number of measure that does not get desired pressure
-    uint8_t eepromBuff[1];
     bool error = false;
 
     // Initialize hw
@@ -145,6 +143,7 @@ int main() {
 
     //get data stored from EEPROM
     autoMode = get_stored_value(MODE_ADDR);
+    if(autoMode != 0 && autoMode !=1) autoMode = true;
     if (autoMode){
         pressure = get_stored_value(PRESSURE_ADDR);
         if(pressure < 0 || pressure > MAX_PRESSURE) pressure = 0;
@@ -158,6 +157,7 @@ int main() {
         if(speed < 0 || speed > MAX_FAN_SPEED) speed = 0;
         pressure = 0;
     }
+
 #ifdef USE_SSD1306
     // I2C is "open drain",
     // pull ups to keep signal high when no data is being sent
@@ -171,9 +171,10 @@ int main() {
 
 #ifdef USE_MQTT
     //IPStack ipstack("SSID", "PASSWORD"); // example
-    IPStack ipstack("Rhod's wifi 2.4G", "0413113368"); // example
+    IPStack ipstack("KME662", "SmartIot"); // example
     auto client = MQTT::Client<IPStack, Countdown>(ipstack);
-    int rc = ipstack.connect("192.168.0.100", 1883);
+
+    int rc = ipstack.connect("192.168.1.10", 1883);
     if (rc != 1) {
         printf("rc from TCP connect is %d\n", rc);
     }
@@ -220,7 +221,6 @@ int main() {
     sleep_ms(100);
     auto modbus_poll = make_timeout_time_ms(3000);
 #endif
-
     while (true) {
         if(menu == 0){
             if (!timeout(startTimeOut)){
@@ -283,8 +283,7 @@ int main() {
                             setPoint = (int)speed;
                         }
                         //write autoMode to eeprom
-                        eepromBuff[0] = autoMode;
-                        write_to_eeprom(MODE_ADDR, eepromBuff, 1);
+                        write_value_to_eeprom(MODE_ADDR, autoMode);
                     } else if (menu == 1){
                         if (autoMode){
                             setPoint = valP;
@@ -297,15 +296,13 @@ int main() {
                             screen.info(autoMode,(float )speed, pressure, temp, humidity, co2);
                             sleep_ms(1000);
                             //write autoMode to eeprom
-                            eepromBuff[0] = valP;
-                            write_to_eeprom(PRESSURE_ADDR, eepromBuff, 1);
+                            write_value_to_eeprom(PRESSURE_ADDR, valP);
                         }
                         else {
                             speed = (float )valS;
                             setPoint = valS;
                             //write autoMode to eeprom
-                            eepromBuff[0] = valS;
-                            write_to_eeprom(SPEED_ADDR, eepromBuff, 1);
+                            write_value_to_eeprom(SPEED_ADDR, valS);
                         }
                     }
                     menu++;
@@ -416,14 +413,11 @@ int main() {
                     printf("rc from MQTT connect is %d\n", rc);
                 }
             }
-            //char buf[100]="Message sent";
             // Construct JSON message
             char buf[256];
             rc = 0;
             sprintf(buf, R"({"nr": %d, "speed": %.1f, "setpoint": %d, "pressure": %d, "auto": %s, "error": %s, "co2": %d, "rh": %d, "temp": %d})",
                     ++msg_count, speed, (int)setPoint, pressure, autoMode ? "true" : "false", "false", co2, humidity, temp);
-            //sprintf(buf, R"({"nr":%d,"setpoint":%d,"pressure":%d,"auto":%s,"error":%s})",
-            //        ++msg_count, (int)setPoint, pressure, autoMode ? "true" : "false", error ? "true" : "false");
 
             MQTT::Message message;
             message.retained = false;

@@ -9,6 +9,12 @@ void init_eeprom() {
     gpio_set_function(I2C0_SCL_PIN, GPIO_FUNC_I2C);
 }
 
+void write_value_to_eeprom(uint16_t memory_address, uint8_t value){
+    uint8_t eepromBuff[1];
+    eepromBuff[0] = value;
+    write_to_eeprom(memory_address, eepromBuff, 1);
+}
+
 void write_to_eeprom(uint16_t memory_address, const uint8_t *data, size_t length) {
     uint8_t buf[EEPROM_ADDR_LEN + length];
     buf[0] = (uint8_t)(memory_address >> BITS_PER_BYTE);    //high byte of memory address

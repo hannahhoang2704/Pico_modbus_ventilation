@@ -27,4 +27,5 @@ void init_eeprom();
 void write_to_eeprom(uint16_t memory_address, const uint8_t *data, size_t length);
 void read_from_eeprom(uint16_t memory_address, uint8_t *data_read, size_t length);
 uint8_t get_stored_value(uint16_t memory_address);
+void write_value_to_eeprom(uint16_t memory_address, uint8_t value);
 #endif //PICO_MODBUS_EEPROM_H
