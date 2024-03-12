@@ -52,9 +52,10 @@ static int temp = 0, humidity = 0, co2 = 0;
 volatile uint64_t startTimeOut = 0;
 volatile int rotCount = 0;
 volatile bool mqtt_mode;
-volatile int mqtt_value = -1;
+volatile int mqtt_value = 0;
 volatile uint8_t menu = 2;
 bool autoMode = false;
+volatile bool receivedNewMsg = false;
 
 void messageArrived(MQTT::MessageData &md) {
     MQTT::Message &message = md.message;
@@ -77,6 +78,7 @@ void messageArrived(MQTT::MessageData &md) {
     printf("autoMode: %d, setpoint: %d\n", mqtt_mode, mqtt_value);
     autoMode = mqtt_mode;
     menu = 2;
+    receivedNewMsg = true;
 }
 
 // rotary encoder interrupt handler
@@ -117,9 +119,8 @@ int main() {
     int pressure = 0;
     float speed = 0;
 
-    int speedInt = 0;
-    int valP = pressure;
-    int valS = speedInt;
+    int valP = 0;
+    int valS = 0;
     bool valM = autoMode;
     int setPoint = 0;   //used for set speed or pressure
     int setPointP_L = 0; //under limit pressure
@@ -147,12 +148,13 @@ int main() {
     printf("\nBoot\n");
 
     //get data stored from EEPROM
-    autoMode = get_stored_value(MODE_ADDR);
-    printf("debug: autoMode VAlue: %d\n", autoMode);
-    if (autoMode != 0 || autoMode != 1){
+    /*int modeVal = get_stored_value(MODE_ADDR);
+    if (modeVal < 0 || modeVal > 1){
         autoMode = true;
-        eepromBuff[0] = autoMode;
-        write_to_eeprom(MODE_ADDR, eepromBuff, 1);
+    }*/
+    autoMode = get_stored_value(MODE_ADDR);
+    if (autoMode != 0 && autoMode != 1){
+        autoMode = true;
     }
     if (autoMode){
         setPoint = get_stored_value(PRESSURE_ADDR);
@@ -160,14 +162,12 @@ int main() {
         speed = getSpeed(setPoint);
         setPointP_H = setPoint + OFFSET > MAX_PRESSURE ? MAX_PRESSURE:setPoint + OFFSET;
         setPointP_L = setPoint - OFFSET < 0 ? 0:setPoint - OFFSET;
-        printf("debug: setpointP %d\n", setPoint);
     }
     else{
-        speed = (float )get_stored_value(SPEED_ADDR);
-        if(speed < 0 || speed > MAX_FAN_SPEED) speed = 0;
+        setPoint = get_stored_value(SPEED_ADDR);
+        if(setPoint < 0 || setPoint > MAX_FAN_SPEED) setPoint = 0;
+        speed = (float )setPoint;
         pressure = 0;
-        setPoint = (int)speed;
-        printf("debug: setpointS %d\n", setPoint);
     }
 #ifdef USE_SSD1306
     // I2C is "open drain",
@@ -182,9 +182,9 @@ int main() {
 
 #ifdef USE_MQTT
     //IPStack ipstack("SSID", "PASSWORD"); // example
-    IPStack ipstack("Rhod's wifi 2.4G", "0413113368"); // example
-    auto client = MQTT::Client<IPStack, Countdown>(ipstack);
-    int rc = ipstack.connect("192.168.0.100", 1883);
+    IPStack ipstack("SmartIotMQTT", "SmartIot"); // example
+    auto client = MQTT::Client<IPStack, Countdown, 256>(ipstack);
+    int rc = ipstack.connect("192.168.1.10", 1883);
     if (rc != 1) {
         printf("rc from TCP connect is %d\n", rc);
     }
@@ -223,11 +223,11 @@ int main() {
 
     sleep_ms(100);
     if ((int)speed > 8){
-        if ((int)speed < 30){
-            fanSpeed.write(300);
+        if ((int)speed < 50){
+            fanSpeed.write(500);
             sleep_ms(100);
         }
-        fanSpeed.write(mqtt_value*10);
+        fanSpeed.write((int)(speed*10));
         sleep_ms(100);
     }
     sleep_ms(100);
@@ -275,32 +275,30 @@ int main() {
         }
         else if(menu == 2){
             screen.info(autoMode,(float )speed, pressure, temp, humidity, co2);
-            if (mqtt_value >= 0){
+            if (receivedNewMsg){
                 eepromBuff[0] = autoMode;
                 write_to_eeprom(MODE_ADDR, eepromBuff, 1);
+                setPoint = mqtt_value;
+                eepromBuff[0] = setPoint;
                 if (autoMode){
-                    setPoint = mqtt_value;
                     setPointP_H = setPoint + OFFSET > MAX_PRESSURE ? MAX_PRESSURE:setPoint + OFFSET;
                     setPointP_L = setPoint - OFFSET < 0 ? 0:setPoint - OFFSET;
                     speed = getSpeed(setPoint);
-                    eepromBuff[0] = setPoint;
                     write_to_eeprom(PRESSURE_ADDR, eepromBuff, 1);
                 }
                 else{
-                    setPoint = mqtt_value;
-                    speed = (float ) mqtt_value;
-                    eepromBuff[0] = setPoint;
+                    speed = (float ) setPoint;
                     write_to_eeprom(SPEED_ADDR, eepromBuff, 1);
                 }
                 if ((int)speed > 8){
-                    if ((int)speed < 30){
-                        fanSpeed.write(300);
+                    if ((int)speed < 50){
+                        fanSpeed.write(500);
                         sleep_ms(100);
                     }
-                    fanSpeed.write(mqtt_value*10);
+                    fanSpeed.write((int)(speed*10));
                     sleep_ms(100);
                 }
-                mqtt_value = -1;
+                receivedNewMsg = false;
             }
         }
         else{
@@ -311,32 +309,29 @@ int main() {
             sleep_ms(30);
             if (!gpio_get(ROT_SW)){
                 if (menu < 2){
+                    measureCount = 0;
                     if (menu == 0){
                         autoMode = valM;
-                        valS = (int)speed;
-                        valP = pressure;
-                        if (autoMode){
-                            setPoint = pressure;
-                            setPointP_H = setPoint + OFFSET > MAX_PRESSURE ? MAX_PRESSURE:setPoint + OFFSET;
-                            setPointP_L = setPoint - OFFSET < 0 ? 0:setPoint - OFFSET;
-                        } else{
-                            setPoint = (int)speed;
-                        }
+                        printf("debug: autoMode: %d\n", autoMode);
                         //write autoMode to eeprom
                         eepromBuff[0] = autoMode;
+                        printf("debug: eepromBuff[0] %d\n", eepromBuff[0]);
                         write_to_eeprom(MODE_ADDR, eepromBuff, 1);
+                        printf("debug: getModeback: %d\n",get_stored_value(MODE_ADDR));
                     } else if (menu == 1){
                         if (autoMode){
-                            measureCount = 0;
                             setPoint = valP;
                             setPointP_H = setPoint + OFFSET > MAX_PRESSURE ? MAX_PRESSURE:setPoint + OFFSET;
                             setPointP_L = setPoint - OFFSET < 0 ? 0:setPoint - OFFSET;
                             speed = getSpeed(setPoint);
-                            if ((int)speed < 30){
-                                fanSpeed.write(300);
+                            if ((int)speed > 8){
+                                if ((int)speed < 50){
+                                    fanSpeed.write(500);
+                                    sleep_ms(100);
+                                }
+                                fanSpeed.write((int)(speed*10));
                                 sleep_ms(100);
                             }
-                            fanSpeed.write((int)(speed*10));
                             screen.info(autoMode,(float )speed, pressure, temp, humidity, co2);
                             sleep_ms(1000);
                             //write autoMode to eeprom
@@ -344,8 +339,8 @@ int main() {
                             write_to_eeprom(PRESSURE_ADDR, eepromBuff, 1);
                         }
                         else {
-                            speed = (float )valS;
                             setPoint = valS;
+                            speed = (float )setPoint;
                             //write autoMode to eeprom
                             eepromBuff[0] = valS;
                             write_to_eeprom(SPEED_ADDR, eepromBuff, 1);
@@ -353,6 +348,7 @@ int main() {
                     }
                     menu++;
                 }
+                while (!gpio_get(ROT_SW)){ sleep_ms(10);}
             }
             rotPressed = false;
         }
@@ -396,6 +392,40 @@ int main() {
             startTimeOut = time_us_64();
         }
 //start measurement
+        getPressure(&pressure);
+        if (autoMode){
+            if (pressure < setPointP_L){
+                measureCount++;
+                if (measureCount >= 20){
+                    menu = 3;   //show error screen
+                    measureCount = 20;
+                    error = true;
+                }
+            }
+            if (pressure < setPointP_L){
+                if ((int)speed >= MAX_FAN_SPEED){
+                    break;
+                }
+                else{
+                    speed += 1;
+                }
+                fanSpeed.write((int )(speed*10));
+                sleep_ms(fanDelay);
+                getPressure(&pressure);
+            }
+            if (pressure > setPointP_H){
+                measureCount = 0;
+                error = false;
+                if ((int)speed > 8) speed -= 1;
+                fanSpeed.write((int)(speed*10));
+                sleep_ms(fanDelay);
+                getPressure(&pressure);
+                if (menu >= 2){
+                    menu = 2;
+                }
+            }
+            //pressure = (int)setPoint;   // in auto mode, pressure keeps unchanged
+        }
 
 #ifdef USE_MODBUS
         if (time_reached(modbus_poll)) {
@@ -408,48 +438,6 @@ int main() {
             temp = tem.read()/10;
             printf("T     = %d C\n", temp);
             printf("S     = %.1f\n", speed);
-            getPressure(&pressure);
-            if (autoMode){
-                if (pressure < setPointP_L){
-                    measureCount++;
-                    if (measureCount >= 20){
-                        menu = 3;   //show error screen
-                        measureCount = 20;
-                        error = true;
-                    }
-                }
-                while (pressure < setPointP_L){
-                    speedInt = (int)(speed*10);
-                    if (speedInt >= MAX_FAN_SPEED*10){
-                        break;
-                    }
-                    else{
-                        speedInt++;
-                        speed = (float )speedInt / 10;
-                    }
-                    fanSpeed.write(speedInt);
-                    sleep_ms(fanDelay);
-                    getPressure(&pressure);
-                    if (menu == 2){
-                        screen.info(autoMode,(float )speed, (int)setPoint, temp, humidity, co2);
-                    }
-                }
-                while (pressure > setPointP_H){
-                    speedInt = (int)(speed*10);
-                    measureCount = 0;
-                    error = false;
-                    if (speedInt > 0) speedInt--;
-                    fanSpeed.write(speedInt);
-                    speed = (float)speedInt/10;
-                    sleep_ms(fanDelay);
-                    getPressure(&pressure);
-                    if (menu >= 2){
-                        menu = 2;
-                        screen.info(autoMode,(float )speed, (int)setPoint, temp, humidity, co2);
-                    }
-                }
-                //pressure = (int)setPoint;   // in auto mode, pressure keeps unchanged
-            }
         }
 
 #endif
