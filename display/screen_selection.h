@@ -15,6 +15,9 @@ public:
     void paramSet(bool modeAuto, int val);
     void info(bool autoMode, float speed, int pressure, int temp, int humid, int co2);
     void error();
+    void mqtt_connection(std::string ssid, std::string pw, std::string str, int val, bool submit);
+    void ssid(std::string str, int val);
+    void pw(std::string ssid, std::string str, int val);
 private:
     std::shared_ptr<ssd1306> lcd;
     int color1;

@@ -81,3 +81,52 @@ void currentScreen::error() {
     lcd->text("within 1 minute", 0, 2+22+13+13);
     lcd->show();
 }
+
+void currentScreen::ssid(std::string str, int val){
+    lcd->fill(0);
+    lcd->text("SSID:", 0, 0);
+    char input = char(val);
+    text = str + input;
+    lcd->text(text, 0, 8);
+    lcd->text("Press sw_2 to ", 0, 48);
+    lcd->text("confirm", 0, 56);
+    lcd->show();
+}
+
+void currentScreen::pw(std::string ssid, std::string str, int val){
+    lcd->fill(0);
+    lcd->text("SSID:", 0, 0);
+    lcd->text(ssid, 0, 10);
+    lcd->text("Password:", 0, 16);
+    char input = char(val);
+    text = str + input;
+    lcd->text(text, 0, 24);
+    lcd->text("Press sw_2 to ", 0, 48);
+    lcd->text("confirm", 0, 56);
+    lcd->show();
+}
+
+
+void currentScreen::mqtt_connection(std::string ssid, std::string pw, std::string str, int val, bool submit) {
+    lcd->fill(0);
+    lcd->text("SSID:", 0, 0);
+    //input ssid
+    lcd->text(ssid, 0, 8);
+    lcd->text("Password:", 0, 16);
+    //input password
+    lcd->text(pw, 0, 24);
+    if(val<46){
+        text = str + to_string(val);
+    }else if(val == 46){
+        text = str + '.';
+    }
+    lcd->text("IP address:", 0, 32);
+    lcd->text(text, 0, 40);
+    if(submit){
+        lcd->text("Save to EEPROM", 0, 48);
+    }else{
+        lcd->text("Press sw_2 to ", 0, 48);
+        lcd->text("confirm", 0, 56);
+    }
+    lcd->show();
+}
