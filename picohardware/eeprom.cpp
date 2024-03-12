@@ -35,3 +35,9 @@ uint8_t get_stored_value(uint16_t memory_address) {
     read_from_eeprom(memory_address, &value, 1);
     return value;
 }
+
+void write_value_to_eeprom(uint16_t memory_address, uint8_t value){
+    uint8_t eepromBuff[1];
+    eepromBuff[0] = value;
+    write_to_eeprom(memory_address, eepromBuff, 1);
+}

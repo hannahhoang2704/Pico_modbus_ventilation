@@ -38,7 +38,6 @@
 #define USE_MODBUS
 #define USE_MQTT
 #define USE_SSD1306
-#define EVENT_DEBOUNCE_US 8000
 #define TIMEOUT 60000000    //60s
 #define led_pin 22
 #define OFFSET 1
@@ -127,7 +126,7 @@ int main() {
     int setPointP_H = 0; //upper limit pressure
     uint16_t fanDelay = 200;  //delay time after setting fan speed
     uint8_t measureCount = 0;   //count number of measure that does not get desired pressure
-    uint8_t eepromBuff[2];
+    uint8_t eepromBuff[1];
     bool error = false;
 
     // Initialize hw
@@ -148,14 +147,8 @@ int main() {
     printf("\nBoot\n");
 
     //get data stored from EEPROM
-    /*int modeVal = get_stored_value(MODE_ADDR);
-    if (modeVal < 0 || modeVal > 1){
-        autoMode = true;
-    }*/
     autoMode = get_stored_value(MODE_ADDR);
-    if (autoMode != 0 && autoMode != 1){
-        autoMode = true;
-    }
+    if (autoMode != 0 && autoMode != 1)autoMode = true;
     if (autoMode){
         setPoint = get_stored_value(PRESSURE_ADDR);
         if(setPoint < 0 || setPoint > MAX_PRESSURE) setPoint = 0;
@@ -276,8 +269,9 @@ int main() {
         else if(menu == 2){
             screen.info(autoMode,(float )speed, pressure, temp, humidity, co2);
             if (receivedNewMsg){
-                eepromBuff[0] = autoMode;
-                write_to_eeprom(MODE_ADDR, eepromBuff, 1);
+                write_value_to_eeprom(MODE_ADDR, (uint8_t)autoMode);
+//                eepromBuff[0] = autoMode;
+//                write_to_eeprom(MODE_ADDR, eepromBuff, 1);
                 setPoint = mqtt_value;
                 eepromBuff[0] = setPoint;
                 if (autoMode){
@@ -312,12 +306,10 @@ int main() {
                     measureCount = 0;
                     if (menu == 0){
                         autoMode = valM;
-                        printf("debug: autoMode: %d\n", autoMode);
                         //write autoMode to eeprom
-                        eepromBuff[0] = autoMode;
-                        printf("debug: eepromBuff[0] %d\n", eepromBuff[0]);
-                        write_to_eeprom(MODE_ADDR, eepromBuff, 1);
-                        printf("debug: getModeback: %d\n",get_stored_value(MODE_ADDR));
+                        write_value_to_eeprom(MODE_ADDR, (uint8_t)autoMode);
+//                        eepromBuff[0] = autoMode;
+//                        write_to_eeprom(MODE_ADDR, eepromBuff, 1);
                     } else if (menu == 1){
                         if (autoMode){
                             setPoint = valP;
@@ -335,15 +327,17 @@ int main() {
                             screen.info(autoMode,(float )speed, pressure, temp, humidity, co2);
                             sleep_ms(1000);
                             //write autoMode to eeprom
-                            eepromBuff[0] = valP;
-                            write_to_eeprom(PRESSURE_ADDR, eepromBuff, 1);
+                            write_value_to_eeprom(PRESSURE_ADDR, (uint8_t)valP);
+//                            eepromBuff[0] = valP;
+//                            write_to_eeprom(PRESSURE_ADDR, eepromBuff, 1);
                         }
                         else {
                             setPoint = valS;
                             speed = (float )setPoint;
                             //write autoMode to eeprom
-                            eepromBuff[0] = valS;
-                            write_to_eeprom(SPEED_ADDR, eepromBuff, 1);
+                            write_value_to_eeprom(SPEED_ADDR, valS);
+//                            eepromBuff[0] = valS;
+//                            write_to_eeprom(SPEED_ADDR, eepromBuff, 1);
                         }
                     }
                     menu++;
