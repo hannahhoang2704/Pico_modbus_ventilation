@@ -28,7 +28,7 @@ void pico_uart1_handler(void) {
 }
 
 
-PicoUart::PicoUart(int uart_nr, int tx_pin, int rx_pin, int speed, int tx_size, int rx_size) :tx(tx_size), rx(rx_size), speed{speed} {
+PicoUart::PicoUart(int uart_nr, int tx_pin, int rx_pin, int speed, int stop, int tx_size, int rx_size) :tx(tx_size), rx(rx_size), speed{speed} {
     irqn = uart_nr==0 ? UART0_IRQ : UART1_IRQ;
     uart = uart_nr==0 ? uart0 : uart1;
     if(uart_nr == 0) {
@@ -43,6 +43,7 @@ PicoUart::PicoUart(int uart_nr, int tx_pin, int rx_pin, int speed, int tx_size, 
 
     // Set up our UART with the required speed.
     uart_init(uart, speed);
+    uart_set_format(uart, 8, stop, UART_PARITY_NONE);
 
     // Set the TX and RX pins by using the function select on the GPIO
     // See datasheet for more information on function select
@@ -143,6 +144,3 @@ int PicoUart::get_fifo_level() {
 int PicoUart::get_baud() {
     return speed;
 }
-
-
-
