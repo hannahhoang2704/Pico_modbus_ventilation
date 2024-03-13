@@ -327,19 +327,17 @@ int main() {
             screen.info(autoMode,(float )speed, pressure, temp, humidity, co2);
             if (receivedNewMsg){
                 error = false;
-                eepromBuff[0] = autoMode;
-                write_to_eeprom(MODE_ADDR, eepromBuff, 1);
+                write_value_to_eeprom(MODE_ADDR, autoMode);
                 setPoint = mqtt_value;
-                eepromBuff[0] = setPoint;
                 if (autoMode){
                     setPointP_H = setPoint + OFFSET > MAX_PRESSURE ? MAX_PRESSURE:setPoint + OFFSET;
                     setPointP_L = setPoint - OFFSET < 0 ? 0:setPoint - OFFSET;
                     speed = getSpeed(setPoint);
-                    write_to_eeprom(PRESSURE_ADDR, eepromBuff, 1);
+                    write_value_to_eeprom(PRESSURE_ADDR, setPoint);
                 }
                 else{
                     speed = (float ) setPoint;
-                    write_to_eeprom(SPEED_ADDR, eepromBuff, 1);
+                    write_value_to_eeprom(SPEED_ADDR, setPoint);
                     if ((int)speed > 8 && (int)speed < 50){
                         fanSpeed.write(500);
                         sleep_ms(100);
@@ -366,16 +364,14 @@ int main() {
                             autoMode = false;
                             valS = (int)speed;
                             //write autoMode to eeprom
-                            eepromBuff[0] = autoMode;
-                            write_to_eeprom(MODE_ADDR, eepromBuff, 1);
+                            write_value_to_eeprom(MODE_ADDR, autoMode);
                             break;
                         case 1:
                             menu = 1;
                             autoMode = true;
                             valP = pressure;
                             //write autoMode to eeprom
-                            eepromBuff[0] = autoMode;
-                            write_to_eeprom(MODE_ADDR, eepromBuff, 1);
+                            write_value_to_eeprom(MODE_ADDR, autoMode);
                             break;
                         case 2:
                             menu = 2;
@@ -393,15 +389,13 @@ int main() {
                         setPointP_L = setPoint - OFFSET < 0 ? 0:setPoint - OFFSET;
                         speed = getSpeed(setPoint);
                         //write autoMode to eeprom
-                        eepromBuff[0] = valP;
-                        write_to_eeprom(PRESSURE_ADDR, eepromBuff, 1);
+                        write_value_to_eeprom(PRESSURE_ADDR, valP);
                     }
                     else {
                         setPoint = valS;
                         speed = (float )setPoint;
                         //write autoMode to eeprom
-                        eepromBuff[0] = valS;
-                        write_to_eeprom(SPEED_ADDR, eepromBuff, 1);
+                        write_value_to_eeprom(SPEED_ADDR, valS);
                     }
                     menu = 2;
                     if ((int)speed > 8 && (int)speed < 50){
@@ -468,7 +462,6 @@ int main() {
                         menu = 2;
                     }
                 }
-                //pressure = (int)setPoint;   // in auto mode, pressure keeps unchanged
             }
         }
 
