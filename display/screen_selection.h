@@ -14,7 +14,7 @@ public:
     void screenSelection (int option);
     void setSpeed(int val);
     void setPressure(int val);
-    void info(bool autoMode, float speed, int pressure, int temp, int humid, int co2);
+    void info(bool autoMode, int speed, int pressure, int temp, int humid, int co2);
     void error();
 private:
     std::shared_ptr<ssd1306> lcd;

@@ -5,6 +5,6 @@
 #ifndef PICO_MODBUS_VENTILATION_SPEED_PRESSURE_DATA_H
 #define PICO_MODBUS_VENTILATION_SPEED_PRESSURE_DATA_H
 
-float getSpeed(int pressure_);
+int getSpeed(int pressure_);
 
 #endif //PICO_MODBUS_VENTILATION_SPEED_PRESSURE_DATA_H

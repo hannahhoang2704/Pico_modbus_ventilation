@@ -3,7 +3,7 @@
 #include "speed_pressure_data.h"
 
 // Define the data array
-std::vector<std::pair<float, int>> data = {
+std::vector<std::pair<int, int>> data = {
         {0, 0},
         {12, 1},
         {13, 2},
@@ -127,11 +127,11 @@ std::vector<std::pair<float, int>> data = {
         {92, 120}
 };
 
-float getSpeed(const int pressure_) {
+int getSpeed(const int pressure_) {
     for (const auto& pair : data) {
         if (pair.second == pressure_) {
             return pair.first;
         }
     }
-    return -1.0; // Invalid pressure value
+    return -1; // Invalid pressure value
 }
