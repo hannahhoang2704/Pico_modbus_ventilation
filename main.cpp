@@ -205,6 +205,7 @@ int main() {
     uint8_t measureCount = 0;   //count number of measure that does not get desired pressure
     uint8_t eepromBuff[2];
     bool error = false;
+    bool enableMeasurement = true;
 
     // Initialize hw
     stdio_init_all();
@@ -304,6 +305,9 @@ int main() {
 #endif
 
     while (true) {
+        if (menu != 2){
+            enableMeasurement = false;
+        }
         if(menu == 0){
             if (!timeout(startTimeOut)){
                 screen.screenSelection(option);
@@ -324,6 +328,7 @@ int main() {
             }
         }
         else if(menu == 2){
+            enableMeasurement = true;
             screen.info(autoMode,(float )speed, pressure, temp, humidity, co2);
             if (receivedNewMsg){
                 error = false;
@@ -417,82 +422,79 @@ int main() {
         }
 //start measurement
 
-
+        if (enableMeasurement){
 #ifdef USE_MODBUS
-        if (time_reached(modbus_poll)) {
-            gpio_put(led_pin, !gpio_get(led_pin)); // toggle  led
-            modbus_poll = delayed_by_ms(modbus_poll, 3000);
-            co2 = c2o.read();
-            printf("CO2   = %d ppm\n", co2);
-            humidity = rh.read()/10;
-            printf("RH    = %d%%\n", humidity);
-            temp = tem.read()/10;
-            printf("T     = %d C\n", temp);
-            printf("S     = %.1f\n", speed);
+            if (time_reached(modbus_poll)) {
+                gpio_put(led_pin, !gpio_get(led_pin)); // toggle  led
+                modbus_poll = delayed_by_ms(modbus_poll, 3000);
+                co2 = c2o.read();
+                printf("CO2   = %d ppm\n", co2);
+                humidity = rh.read()/10;
+                printf("RH    = %d%%\n", humidity);
+                temp = tem.read()/10;
+                printf("T     = %d C\n", temp);
+                printf("S     = %.1f\n", speed);
 
-            getPressure(&pressure);
-            if (autoMode){
-                if (pressure < setPointP_L){
-                    measureCount++;
-                    if (measureCount >= 20){
-                        menu = 3;   //show error screen
-                        measureCount = 20;
-                        error = true;
+                getPressure(&pressure);
+                if (autoMode){
+                    if (pressure < setPointP_L){
+                        measureCount++;
+                        if (measureCount >= 20){
+                            menu = 3;   //show error screen
+                            measureCount = 20;
+                            error = true;
+                        }
+                    }
+                    if (pressure < setPointP_L){
+                        if ((int)speed >= MAX_FAN_SPEED){
+                            break;
+                        }
+                        else{
+                            speed += 1;
+                        }
+                        fanSpeed.write((int )(speed*10));
+                        sleep_ms(fanDelay);
+                        getPressure(&pressure);
+                    }
+                    if (pressure > setPointP_H){
+                        measureCount = 0;
+                        error = false;
+                        if ((int)speed > 8) speed -= 1;
+                        fanSpeed.write((int)(speed*10));
+                        sleep_ms(fanDelay);
+                        getPressure(&pressure);
+                        if (menu >= 2){
+                            menu = 2;
+                        }
                     }
                 }
-                if (pressure < setPointP_L){
-                    if ((int)speed >= MAX_FAN_SPEED){
-                        break;
-                    }
-                    else{
-                        speed += 1;
-                    }
-                    fanSpeed.write((int )(speed*10));
-                    sleep_ms(fanDelay);
-                    getPressure(&pressure);
-                }
-                if (pressure > setPointP_H){
-                    measureCount = 0;
-                    error = false;
-                    if ((int)speed > 8) speed -= 1;
-                    fanSpeed.write((int)(speed*10));
-                    sleep_ms(fanDelay);
-                    getPressure(&pressure);
-                    if (menu >= 2){
-                        menu = 2;
+
+                if (!client.isConnected()) {
+                    printf("Not connected...\n");
+                    rc = client.connect(data);
+                    if (rc != 0) {
+                        printf("rc from MQTT connect is %d\n", rc);
                     }
                 }
+                // Construct JSON message
+                char buf[256];
+                sprintf(buf, R"({"nr": %d, "speed": %d, "setpoint": %d, "pressure": %d, "auto": %s, "error": %s, "co2": %d, "rh": %d, "temp": %d})",
+                        ++msg_count, (int)speed, (int)setPoint, pressure, autoMode ? "true" : "false", error ? "true" : "false", co2, humidity, temp);
+                MQTT::Message message;
+                message.retained = false;
+                message.dup = false;
+                message.payload = (void *)buf;
+                message.qos = MQTT::QOS0;
+                message.payloadlen = strlen(buf);
+                rc = client.publish(pub_topic, message);
+                printf("Publish rc=%d\n", rc);
             }
-        }
-
 #endif
 #ifdef USE_MQTT
-        if (time_reached(mqtt_send)) {
-            mqtt_send = delayed_by_ms(mqtt_send, 3000);
-            if (!client.isConnected()) {
-                printf("Not connected...\n");
-                rc = client.connect(data);
-                if (rc != 0) {
-                    printf("rc from MQTT connect is %d\n", rc);
-                }
-            }
-            // Construct JSON message
-            char buf[256];
-            sprintf(buf, R"({"nr": %d, "speed": %d, "setpoint": %d, "pressure": %d, "auto": %s, "error": %s, "co2": %d, "rh": %d, "temp": %d})",
-                    ++msg_count, (int)speed, (int)setPoint, pressure, autoMode ? "true" : "false", error ? "true" : "false", co2, humidity, temp);
-            MQTT::Message message;
-            message.retained = false;
-            message.dup = false;
-            message.payload = (void *)buf;
-            message.qos = MQTT::QOS0;
-            message.payloadlen = strlen(buf);
-            rc = client.publish(pub_topic, message);
-            printf("Publish rc=%d\n", rc);
-        }
-
-        cyw43_arch_poll(); // obsolete? - see below
-        client.yield(100); // socket that client uses calls cyw43_arch_poll()
+            cyw43_arch_poll(); // obsolete? - see below
+            client.yield(100); // socket that client uses calls cyw43_arch_poll()
 #endif
+        }
     }
 }
 
