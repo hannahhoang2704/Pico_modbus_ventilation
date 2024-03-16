@@ -100,19 +100,17 @@ void messageArrived(MQTT::MessageData &md) {
     memcpy(payload_str, message.payload, message.payloadlen);
     payload_str[message.payloadlen] = '\0';
 
-    printf("Message arrived: qos %d, retained %d, dup %d, packetid %d\n",
-           message.qos, message.retained, message.dup, message.id);
-//    printf("Payload %s\n", (char *) message.payload);
-    printf("Payload %s", (char *)payload_str);
+    //printf("Message arrived: qos %d, retained %d, dup %d, packetid %d\n",
+    //       message.qos, message.retained, message.dup, message.id);
+    //printf("Payload %s", (char *)payload_str);
 
     //extract mode and value from arrived message in format `{"auto": true, "pressure": 10}`
-    //need to test out if it's working//
     char* auto_mode = strstr(payload_str, "\"auto\":");
     if (auto_mode != nullptr){
         mqtt_mode = (*(auto_mode + 8) == 't');
     }
     sscanf(payload_str, "%*[^0-9]%d", &mqtt_value);
-    printf("autoMode: %d, setpoint: %d\n", mqtt_mode, mqtt_value);
+    //printf("autoMode: %d, setpoint: %d\n", mqtt_mode, mqtt_value);
     autoMode = mqtt_mode;
     menu = 2;
     receivedNewMsg = true;
@@ -122,7 +120,7 @@ void messageArrived(MQTT::MessageData &md) {
 void rot_handler(uint gpio, uint32_t event_mask) {
     if(gpio == ROT_A){
         // Debounce logic
-        if (time_since_last_interrupt(gpio) < DEBOUNCE_TIME*10)
+        if (time_since_last_interrupt(gpio) < DEBOUNCE_TIME*5)
             return;
         if (!gpio_get(gpio)){
             if (irqReady){
@@ -184,12 +182,12 @@ void getPressure(int *pressure){
     uint8_t start_cmd[] = {0xF1};
     uint8_t pressure_data[2];
     i2c_write_blocking(i2c1, SDP610_ADDR, start_cmd, 1, false);
-    sleep_ms(10);
+    //sleep_ms(10);
     i2c_read_blocking(i2c1, SDP610_ADDR, pressure_data, 2, false);
-    sleep_ms(100);
+    //sleep_ms(100);
     pressureData = ((pressure_data[0] << 8) | pressure_data[1])/SCALE_FACTOR*ALTITUDE_CORR_FACTOR;
     *pressure = pressureData > 130 ? 0 : pressureData;
-    printf("Pressure = %dpa\n",*pressure);
+    //printf("Pressure = %dpa\n",*pressure);
 }
 
 int main() {
@@ -197,7 +195,6 @@ int main() {
     int pressure = 0;
     int speed = 0;
 
-    bool valM = autoMode;
     int setPoint = 0;   //used for set speed or pressure
     int setPointP_L = 0; //under limit pressure
     int setPointP_H = 0; //upper limit pressure
@@ -256,6 +253,7 @@ int main() {
 
 
 #ifdef USE_MQTT
+    screen.networkConnecting();
     //IPStack ipstack("SSID", "PASSWORD"); // example
     IPStack ipstack("Rhod's wifi 2.4G", "0413113368"); // example
     auto client = MQTT::Client<IPStack, Countdown, 256>(ipstack);
@@ -263,7 +261,7 @@ int main() {
     if (rc != 1) {
         printf("rc from TCP connect is %d\n", rc);
     }
-
+    screen.networkConnecting();
     printf("MQTT connecting\n");
     MQTTPacket_connectData data = MQTTPacket_connectData_initializer;
     data.MQTTVersion = 3;
@@ -287,7 +285,7 @@ int main() {
         printf("MQTT subscribed\n");
     }
 
-    auto mqtt_send = make_timeout_time_ms(3000);
+    //auto mqtt_send = make_timeout_time_ms(3000);
     int msg_count = 0;
 #endif
 
@@ -438,12 +436,12 @@ int main() {
                 gpio_put(led_pin, !gpio_get(led_pin)); // toggle  led
                 modbus_poll = delayed_by_ms(modbus_poll, 3000);
                 co2 = c2o.read();
-                printf("CO2   = %d ppm\n", co2);
+                //printf("CO2   = %d ppm\n", co2);
                 humidity = rh.read()/10;
-                printf("RH    = %d%%\n", humidity);
+                //printf("RH    = %d%%\n", humidity);
                 temp = tem.read()/10;
-                printf("T     = %d C\n", temp);
-                printf("S     = %.1f\n", speed);
+                //printf("T     = %d C\n", temp);
+                //printf("S     = %.1f\n", speed);
 
                 getPressure(&pressure);
                 if (autoMode){
@@ -502,10 +500,10 @@ int main() {
 #ifdef USE_MQTT
                 if (connectedMQTT){
                     if (!client.isConnected()) {
-                        printf("Not connected...\n");
+                        //printf("Not connected...\n");
                         rc = client.connect(data);
                         if (rc != 0) {
-                            printf("rc from MQTT connect is %d\n", rc);
+                            //printf("rc from MQTT connect is %d\n", rc);
                             connectedMQTT = false;
                         }
                     }
@@ -520,7 +518,7 @@ int main() {
                     message.qos = MQTT::QOS0;
                     message.payloadlen = strlen(buf);
                     rc = client.publish(pub_topic, message);
-                    printf("Publish rc=%d\n", rc);
+                    //printf("Publish rc=%d\n", rc);
                 }
 #endif
             }

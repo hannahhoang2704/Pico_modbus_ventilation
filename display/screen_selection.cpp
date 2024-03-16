@@ -2,6 +2,23 @@
 #include "icons.h"
 
 using namespace std;
+void currentScreen::networkConnecting() {
+    for (int i = 0; i < 2; i++){
+        lcd->fill(0);
+        mono_vlsb icon(mqtt_icon, 50, 50);
+        lcd->blit(icon, 39, 7);
+        lcd->show();
+        sleep_ms(500);
+        lcd->fill(0);
+        lcd->show();
+        sleep_ms(500);
+        lcd->fill(0);
+        mono_vlsb icon1(mqtt_icon, 50, 50);
+        lcd->blit(icon1, 39, 7);
+        lcd->show();
+    }
+}
+
 void currentScreen::screenSelection(const int option) {
     lcd->fill(0);
     switch (option) {
@@ -39,7 +56,7 @@ void currentScreen::screenSelection(const int option) {
     lcd->text("Set Fan speed", 5, 7, color0);
     lcd->text("Set Pressure", 5, 21, color1);
     lcd->text("Show Status", 5, 35, color2);
-    lcd->text("MQTT Broker", 5, 49, color3);
+    lcd->text("WiFi & MQTT", 5, 49, color3);
     lcd->show();
 }
 
@@ -102,5 +119,10 @@ void currentScreen::error() {
     lcd->text("Target pressure", 0, 2+22);
     lcd->text("can't be reached", 0, 2+22+13);
     lcd->text("within 1 minute", 0, 2+22+13+13);
+    lcd->show();
+}
+
+void currentScreen::mqtt() {
+    lcd->fill(0);
     lcd->show();
 }
