@@ -37,6 +37,13 @@
 
 #define SCALE_FACTOR 240    //SDP610-125pa model
 #define ALTITUDE_CORR_FACTOR 0.92   //adjust this to get 125pa with max fan speed
+#define CO2_REGISISTER_ADDR 256
+#define HUMIDITY_REGISTER_ADDR 256
+#define TEMP_REGISTER_ADDR 257
+#define FAN_REGISER_ADDR 0
+#define GMP252_ADDR 240
+#define HMP60_ADDR 241
+#define FAN_SERVER_ADDR 1
 
 #define USE_MODBUS
 #define USE_MQTT
@@ -58,7 +65,7 @@ volatile uint64_t startTimeOut = 0;
 volatile int rotCount = 0;
 volatile bool mqtt_mode;
 volatile int mqtt_value = 0;
-volatile uint8_t menu = 2;
+//volatile uint8_t menu = 2;
 bool autoMode = false;
 volatile bool receivedNewMsg = false;
 int option = 0;
@@ -66,9 +73,19 @@ volatile bool irqReady = true;
 volatile int valP = 0;
 volatile int valS = 0;
 
-uint64_t gpioTimeStamp[3];
+uint64_t gpioTimeStamp[NUMBER_OF_GPIO_PINS];
 
-void last_interrupt_time(uint gpio){
+typedef enum {
+    MAIN_MENU,
+    SETPOINT_MENU,
+    STATUS_MENU,
+    ERROR_MENU,
+    MQTT_MENU
+}MenuState;
+
+MenuState menu = STATUS_MENU;
+
+uint8_t get_gpio_index(uint gpio){
     uint8_t index = 0;
     if (gpio == SW_0){
         index = 0;
@@ -77,20 +94,18 @@ void last_interrupt_time(uint gpio){
     } else if (gpio == ROT_SW){
         index = 2;
     }
+    return index;
+}
+
+void last_interrupt_time(uint gpio){
+    uint8_t index = get_gpio_index(gpio);
     gpioTimeStamp[index] = time_us_64();
 }
 
 // Function to get the time since the last interrupt for a given GPIO pin
 uint64_t time_since_last_interrupt(uint gpio) {
     uint64_t current_time = time_us_64();
-    uint8_t index = 0;
-    if (gpio == SW_0){
-        index = 0;
-    } else if (gpio == ROT_A){
-        index = 1;
-    } else if (gpio == ROT_SW){
-        index = 2;
-    }
+    uint8_t index = get_gpio_index(gpio);
     return current_time - gpioTimeStamp[index];
 }
 
@@ -112,7 +127,7 @@ void messageArrived(MQTT::MessageData &md) {
     sscanf(payload_str, "%*[^0-9]%d", &mqtt_value);
     //printf("autoMode: %d, setpoint: %d\n", mqtt_mode, mqtt_value);
     autoMode = mqtt_mode;
-    menu = 2;
+    menu = STATUS_MENU;
     receivedNewMsg = true;
 }
 
@@ -127,9 +142,9 @@ void rot_handler(uint gpio, uint32_t event_mask) {
                 irqReady = false;
                 startTimeOut = time_us_64();
                 if (gpio_get(ROT_B)){
-                    if (menu == 0){
+                    if (menu == MAIN_MENU){
                         option = (option + 1) % 4;
-                    } else if (menu == 1){
+                    } else if (menu == SETPOINT_MENU){
                         if (autoMode){
                             if (valP < MAX_PRESSURE) valP++;
                         } else{
@@ -138,9 +153,9 @@ void rot_handler(uint gpio, uint32_t event_mask) {
                     }
                 }
                 else{
-                    if (menu == 0){
+                    if (menu == MAIN_MENU){
                         option = (option + 3) % 4; // Handle underflow properly
-                    }else if (menu == 1) {
+                    }else if (menu == SETPOINT_MENU) {
                         if (autoMode) {
                             if (valP > 0) valP--;
                         } else {
@@ -153,7 +168,7 @@ void rot_handler(uint gpio, uint32_t event_mask) {
 
     } else if (gpio == ROT_SW){
         // Debounce logic
-        if (time_since_last_interrupt(gpio) < DEBOUNCE_TIME*500)
+        if (time_since_last_interrupt(gpio) < DEBOUNCE_TIME*5)
             return;
         if (!gpio_get(gpio)){
             startTimeOut = time_us_64();
@@ -161,7 +176,7 @@ void rot_handler(uint gpio, uint32_t event_mask) {
         }
     } else if(gpio == SW_0){
         // Debounce logic
-        if (time_since_last_interrupt(gpio) < DEBOUNCE_TIME*500)
+        if (time_since_last_interrupt(gpio) < DEBOUNCE_TIME*5)
             return;
         if (!gpio_get(gpio)) {
             startTimeOut = time_us_64();
@@ -190,6 +205,11 @@ void getPressure(int *pressure){
     //printf("Pressure = %dpa\n",*pressure);
 }
 
+void set_limit_pressure(int setPoint, int &pressure_lim_high, int &pressure_lim_low){
+    pressure_lim_high = setPoint + OFFSET > MAX_PRESSURE ? MAX_PRESSURE:setPoint + OFFSET;
+    pressure_lim_low= setPoint - OFFSET < 0 ? 0:setPoint - OFFSET;
+}
+
 int main() {
 
     int pressure = 0;
@@ -203,7 +223,7 @@ int main() {
     bool error = false;
     bool enableMeasurement = true;
     int delta = 10;
-    bool pressureDroped = false;
+    bool pressureDropped = false;
     bool connectedMQTT = false;
 
     // Initialize hw
@@ -232,8 +252,9 @@ int main() {
         setPoint = get_stored_value(PRESSURE_ADDR);
         if(setPoint < 0 || setPoint > MAX_PRESSURE) setPoint = 0;
         speed = getSpeed(setPoint);
-        setPointP_H = setPoint + OFFSET > MAX_PRESSURE ? MAX_PRESSURE:setPoint + OFFSET;
-        setPointP_L = setPoint - OFFSET < 0 ? 0:setPoint - OFFSET;
+        set_limit_pressure(setPoint, setPointP_H, setPointP_L);
+//        setPointP_H = setPoint + OFFSET > MAX_PRESSURE ? MAX_PRESSURE:setPoint + OFFSET;
+//        setPointP_L = setPoint - OFFSET < 0 ? 0:setPoint - OFFSET;
     }
     else{
         setPoint = get_stored_value(SPEED_ADDR);
@@ -292,10 +313,10 @@ int main() {
 #ifdef USE_MODBUS
     auto uart{std::make_shared<PicoUart>(UART_NR, UART_TX_PIN, UART_RX_PIN, BAUD_RATE, STOP_BITS)};
     auto rtu_client{std::make_shared<ModbusClient>(uart)};
-    ModbusRegister c2o(rtu_client, 240, 256);
-    ModbusRegister rh(rtu_client, 241, 256);
-    ModbusRegister tem(rtu_client, 241, 257);
-    ModbusRegister fanSpeed(rtu_client, 1, 0);
+    ModbusRegister co_2(rtu_client, GMP252_ADDR, CO2_REGISISTER_ADDR);
+    ModbusRegister rh(rtu_client, HMP60_ADDR, HUMIDITY_REGISTER_ADDR);
+    ModbusRegister tem(rtu_client, HMP60_ADDR, TEMP_REGISTER_ADDR);
+    ModbusRegister fanSpeed(rtu_client, FAN_SERVER_ADDR, FAN_REGISER_ADDR);
 
     sleep_ms(100);
     if (speed > 8 && speed < 50){
@@ -308,17 +329,17 @@ int main() {
 #endif
 
     while (true) {
-        if (menu != 2 && menu != 3){
+        if (menu != STATUS_MENU && menu != ERROR_MENU){
             enableMeasurement = false;
         }
-        if(menu == 0){
+        if(menu == MAIN_MENU){
             if (!timeout(startTimeOut)){
                 screen.screenSelection(option);
                 irqReady = true;
             } else {    //timeout, show info screen
-                menu = 2;
+                menu = STATUS_MENU;
             }
-        }else if(menu == 1){
+        }else if(menu == SETPOINT_MENU){
             if (!timeout(startTimeOut)){
                 if (autoMode){
                     screen.setPressure(valP);
@@ -327,10 +348,10 @@ int main() {
                 }
                 irqReady = true;
             }else {    //timeout, show info screen
-                menu = 2;
+                menu = STATUS_MENU;
             }
         }
-        else if(menu == 2){
+        else if(menu == STATUS_MENU){
             enableMeasurement = true;
             screen.info(autoMode,speed, pressure, temp, humidity, co2);
             if (receivedNewMsg){
@@ -339,8 +360,9 @@ int main() {
                 setPoint = mqtt_value;
                 if (autoMode){
                     if (setPoint > MAX_PRESSURE) setPoint = MAX_PRESSURE;
-                    setPointP_H = setPoint + OFFSET > MAX_PRESSURE ? MAX_PRESSURE:setPoint + OFFSET;
-                    setPointP_L = setPoint - OFFSET < 0 ? 0:setPoint - OFFSET;
+                    set_limit_pressure(setPoint, setPointP_H, setPointP_L);
+//                    setPointP_H = setPoint + OFFSET > MAX_PRESSURE ? MAX_PRESSURE:setPoint + OFFSET;
+//                    setPointP_L = setPoint - OFFSET < 0 ? 0:setPoint - OFFSET;
                     speed = getSpeed(setPoint);
                     write_value_to_eeprom(PRESSURE_ADDR, setPoint);
                 }
@@ -357,45 +379,46 @@ int main() {
                 receivedNewMsg = false;
             }
         }
-        else if (menu == 3){
+        else if (menu == ERROR_MENU){
             screen.error();
         } else{
             //screen.mqtt();
         }
         //handle rot switch pressed to confirm setting and move to next screen
         if (rotPressed){
-            if (menu < 2){
+            if (menu < STATUS_MENU){
                 measureCount = 0;
-                if (menu == 0){
+                if (menu == MAIN_MENU){
                     switch (option) {
                         case 0:
-                            menu = 1;
+                            menu = SETPOINT_MENU;
                             autoMode = false;
                             valS = speed;
                             //write autoMode to eeprom
                             write_value_to_eeprom(MODE_ADDR, autoMode);
                             break;
                         case 1:
-                            menu = 1;
+                            menu = SETPOINT_MENU;
                             autoMode = true;
                             valP = pressure;
                             //write autoMode to eeprom
                             write_value_to_eeprom(MODE_ADDR, autoMode);
                             break;
                         case 2:
-                            menu = 2;
+                            menu = STATUS_MENU;
                             break;
                         case 3:
-                            menu = 4;
+                            menu = MQTT_MENU;
                             break;
                         default:
                             break;
                     }
-                } else if (menu == 1){
+                } else if (menu == SETPOINT_MENU){
                     if (autoMode){
-                        setPoint = valP;
-                        setPointP_H = setPoint + OFFSET > MAX_PRESSURE ? MAX_PRESSURE:setPoint + OFFSET;
-                        setPointP_L = setPoint - OFFSET < 0 ? 0:setPoint - OFFSET;
+                        set_limit_pressure(valP, setPointP_H, setPointP_L);
+//                        setPoint = valP;
+//                        setPointP_H = setPoint + OFFSET > MAX_PRESSURE ? MAX_PRESSURE:setPoint + OFFSET;
+//                        setPointP_L = setPoint - OFFSET < 0 ? 0:setPoint - OFFSET;
                         speed = getSpeed(setPoint);
                         //write autoMode to eeprom
                         write_value_to_eeprom(PRESSURE_ADDR, valP);
@@ -406,7 +429,7 @@ int main() {
                         //write autoMode to eeprom
                         write_value_to_eeprom(SPEED_ADDR, valS);
                     }
-                    menu = 2;
+                    menu = STATUS_MENU;
                     if (speed > 8 && speed < 50){
                         fanSpeed.write(500);
                         sleep_ms(100);
@@ -425,7 +448,7 @@ int main() {
         if(swPressed){
             measureCount = 0;
             error = false;
-            menu = 0;
+            menu = MAIN_MENU;
             swPressed = false;
         }
 //start measurement
@@ -435,7 +458,7 @@ int main() {
             if (time_reached(modbus_poll)) {
                 gpio_put(led_pin, !gpio_get(led_pin)); // toggle  led
                 modbus_poll = delayed_by_ms(modbus_poll, 3000);
-                co2 = c2o.read();
+                co2 = co_2.read();
                 //printf("CO2   = %d ppm\n", co2);
                 humidity = rh.read()/10;
                 //printf("RH    = %d%%\n", humidity);
@@ -448,21 +471,21 @@ int main() {
                     if (pressure < setPointP_L){
                         measureCount++;
                         if (measureCount >= 20){
-                            menu = 3;   //show error screen
+                            menu = ERROR_MENU;   //show error screen
                             measureCount = 20;
                             error = true;
                         }
                         if ((setPointP_L - pressure) > 5){
                             speed += delta;
-                            pressureDroped = true;
+                            pressureDropped = true;
                         } else{
                             speed++;
-                            pressureDroped = false;
+                            pressureDropped = false;
                         }
                         if (speed > MAX_FAN_SPEED) speed = MAX_FAN_SPEED;
                         fanSpeed.write(speed*10);
                         sleep_ms(fanDelay);
-                    } else if ((pressure > setPointP_H) && !pressureDroped){
+                    } else if ((pressure > setPointP_H) && !pressureDropped){
                         measureCount = 0;
                         error = false;
                         if (speed > 8){
@@ -475,10 +498,10 @@ int main() {
                         }
                         fanSpeed.write(speed*10);
                         sleep_ms(fanDelay);
-                        if (menu >= 2){
-                            menu = 2;
+                        if (menu >= STATUS_MENU){
+                            menu = STATUS_MENU;
                         }
-                    } else if ((pressure > setPointP_H) && pressureDroped){
+                    } else if ((pressure > setPointP_H) && pressureDropped){
                         measureCount = 0;
                         error = false;
                         if ((pressure - setPointP_H) > 5){
@@ -487,13 +510,13 @@ int main() {
                         }
                         else {
                             speed--;
-                            pressureDroped = false;
+                            pressureDropped = false;
                         }
                         if (speed < 0) speed = 0;
                         fanSpeed.write(speed*10);
                         sleep_ms(fanDelay);
-                        if (menu >= 2){
-                            menu = 2;
+                        if (menu >= STATUS_MENU){
+                            menu = STATUS_MENU;
                         }
                     }
                 }
