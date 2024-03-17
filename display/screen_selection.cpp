@@ -6,15 +6,16 @@ void currentScreen::networkConnecting() {
     for (int i = 0; i < 2; i++){
         lcd->fill(0);
         mono_vlsb icon(mqtt_icon, 50, 50);
-        lcd->blit(icon, 39, 7);
+        lcd->blit(icon, 39, 0);
+        lcd->text("Connecting...",7,53);
         lcd->show();
         sleep_ms(500);
         lcd->fill(0);
         lcd->show();
         sleep_ms(500);
         lcd->fill(0);
-        mono_vlsb icon1(mqtt_icon, 50, 50);
-        lcd->blit(icon1, 39, 7);
+        lcd->blit(icon, 39, 0);
+        lcd->text("Connecting...",7,53);
         lcd->show();
     }
 }
