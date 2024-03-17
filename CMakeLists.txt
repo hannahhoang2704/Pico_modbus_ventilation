@@ -27,6 +27,7 @@ file(GLOB MQTT_SOURCES "paho.mqtt.embedded-c/MQTTPacket/src/*.c")
 # Tell CMake where to find the executable source file
 add_executable(${PROJECT_NAME}
         main.cpp
+        main.h
         modbus/nanomodbus.h
         modbus/nanomodbus.c
         uart/PicoUart.cpp
@@ -55,6 +56,7 @@ add_executable(${PROJECT_NAME}
         speed_pressure_data.cpp
         speed_pressure_data.h
         picohardware/eeprom.cpp
+        main.h
 )
 
 # Create map/bin/hex/uf2 files
