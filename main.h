@@ -6,6 +6,7 @@
 #define PICO_MODBUS_VENTILATION_MAIN_H
 #include <stdio.h>
 #include <cstring>
+#include <map>
 #include <cmath>
 #include "pico/stdlib.h"
 #include "pico/time.h"
@@ -79,6 +80,12 @@ static volatile int valS = 0;
 
 uint64_t gpioTimeStamp[NUMBER_OF_GPIO_PINS];
 
+std::map<uint, uint8_t> gpioIndexMap = {
+        {SW_0, 0},
+        {ROT_A, 1},
+        {ROT_SW, 2}
+};
+
 typedef enum {
     MAIN_MENU,
     SETPOINT_MENU,
@@ -89,7 +96,6 @@ typedef enum {
 
 MenuState menu = STATUS_MENU;
 
-uint8_t get_gpio_index(uint gpio);
 void last_interrupt_time(uint gpio);
 uint64_t time_since_last_interrupt(uint gpio);
 void messageArrived(MQTT::MessageData &md);
