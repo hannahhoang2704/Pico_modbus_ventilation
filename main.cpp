@@ -1,4 +1,108 @@
-#include "main.h"
+//#include "main.h"
+//
+// Created by Hanh Hoang on 17.3.2024.
+//
+
+#include <stdio.h>
+#include <cstring>
+#include <map>
+#include <cmath>
+#include "pico/stdlib.h"
+#include "pico/time.h"
+#include "hardware/timer.h"
+#include "uart/PicoUart.h"
+
+#include "picohardware/button.h"
+#include "picohardware/eeprom.h"
+#include "IPStack.h"
+#include "Countdown.h"
+#include "MQTTClient.h"
+#include "ModbusClient.h"
+#include "ModbusRegister.h"
+#include "ssd1306.h"
+#include "screen_selection.h"
+#include "speed_pressure_data.h"
+#include "MQTTController.h"
+// We are using pins 0 and 1, but see the GPIO function select table in the
+// datasheet for information on which other pins can be used.
+#if 0
+#define UART_NR 0
+#define UART_TX_PIN 0
+#define UART_RX_PIN 1
+#else
+#define UART_NR 1
+#define UART_TX_PIN 4
+#define UART_RX_PIN 5
+#endif
+#define MAX_FAN_SPEED 100
+#define MAX_PRESSURE 120
+#define SDP610_ADDR 0x40
+#define BAUD_RATE 9600
+#define STOP_BITS 1 // for simulator
+//#define STOP_BITS 2 // for real system
+
+#define I2C1_SDA_PIN 14
+#define I2C1_SCL_PIN 15
+#define SCALE_FACTOR 240    //SDP610-125pa model
+#define ALTITUDE_CORR_FACTOR 0.92   //adjust this to get 125pa with max fan speed
+#define CO2_REGISISTER_ADDR 256
+#define HUMIDITY_REGISTER_ADDR 256
+#define TEMP_REGISTER_ADDR 257
+#define FAN_REGISER_ADDR 0
+#define GMP252_ADDR 240
+#define HMP60_ADDR 241
+#define FAN_SERVER_ADDR 1
+
+#define USE_MODBUS
+#define USE_MQTT
+#define USE_SSD1306
+#define DEBOUNCE_TIME 1000
+#define TIMEOUT 60000000    //60s
+#define led_pin 22
+#define OFFSET 1
+#define NUMBER_OF_GPIO_PINS 3
+
+static const char *pub_topic = "hannah/controller/status";
+static const char *sub_topic = "hannah/controller/settings";
+static volatile bool rotPressed = false;
+static volatile bool swPressed = false;
+static int temp = 0, humidity = 0, co2 = 0;
+static volatile uint64_t startTimeOut = 0;
+static volatile int rotCount = 0;
+static volatile bool mqtt_mode;
+static volatile int mqtt_value = 0;
+//volatile uint8_t menu = 2;
+static bool autoMode = false;
+static volatile bool receivedNewMsg = false;
+static int option = 0;
+static volatile bool irqReady = true;
+static volatile int valP = 0;
+static volatile int valS = 0;
+
+uint64_t gpioTimeStamp[NUMBER_OF_GPIO_PINS];
+
+std::map<uint, uint8_t> gpioIndexMap = {
+        {SW_0, 0},
+        {ROT_A, 1},
+        {ROT_SW, 2}
+};
+
+typedef enum {
+    MAIN_MENU,
+    SETPOINT_MENU,
+    STATUS_MENU,
+    ERROR_MENU,
+    MQTT_MENU
+}MenuState;
+
+MenuState menu = STATUS_MENU;
+
+void last_interrupt_time(uint gpio);
+uint64_t time_since_last_interrupt(uint gpio);
+void messageArrived(MQTT::MessageData &md);
+bool timeout(const uint64_t start);
+void getPressure(int &pressure);
+void set_limit_pressure(int setPoint, int &pressure_lim_high, int &pressure_lim_low);
 
 using namespace std;
 
@@ -20,17 +124,12 @@ void messageArrived(MQTT::MessageData &md) {
     memcpy(payload_str, message.payload, message.payloadlen);
     payload_str[message.payloadlen] = '\0';
 
-    //printf("Message arrived: qos %d, retained %d, dup %d, packetid %d\n",
-    //       message.qos, message.retained, message.dup, message.id);
-    //printf("Payload %s", (char *)payload_str);
-
     //extract mode and value from arrived message in format `{"auto": true, "pressure": 10}`
     char* auto_mode = strstr(payload_str, "\"auto\":");
     if (auto_mode != nullptr){
         mqtt_mode = (*(auto_mode + 8) == 't');
     }
     sscanf(payload_str, "%*[^0-9]%d", &mqtt_value);
-    //printf("autoMode: %d, setpoint: %d\n", mqtt_mode, mqtt_value);
     autoMode = mqtt_mode;
     menu = STATUS_MENU;
     receivedNewMsg = true;
@@ -97,7 +196,7 @@ bool timeout(const uint64_t start){
     return (time_us_64() - start) > TIMEOUT;
 }
 
-void getPressure(int *pressure){
+void getPressure(int &pressure){
     int pressureData;
     uint8_t start_cmd[] = {0xF1};
     uint8_t pressure_data[2];
@@ -106,7 +205,7 @@ void getPressure(int *pressure){
     i2c_read_blocking(i2c1, SDP610_ADDR, pressure_data, 2, false);
     //sleep_ms(100);
     pressureData = ((pressure_data[0] << 8) | pressure_data[1])/SCALE_FACTOR*ALTITUDE_CORR_FACTOR;
-    *pressure = pressureData > 130 ? 0 : pressureData;
+    pressure = pressureData > 130 ? 0 : pressureData;
     //printf("Pressure = %dpa\n",*pressure);
 }
 
@@ -129,7 +228,7 @@ int main() {
     bool enableMeasurement = true;
     int delta = 10;
     bool pressureDropped = false;
-    bool connectedMQTT = false;
+//    bool connectedMQTT = false;
 
     // Initialize hw
     stdio_init_all();
@@ -158,8 +257,6 @@ int main() {
         if(setPoint < 0 || setPoint > MAX_PRESSURE) setPoint = 0;
         speed = getSpeed(setPoint);
         set_limit_pressure(setPoint, setPointP_H, setPointP_L);
-//        setPointP_H = setPoint + OFFSET > MAX_PRESSURE ? MAX_PRESSURE:setPoint + OFFSET;
-//        setPointP_L = setPoint - OFFSET < 0 ? 0:setPoint - OFFSET;
     }
     else{
         setPoint = get_stored_value(SPEED_ADDR);
@@ -171,8 +268,8 @@ int main() {
     // I2C is "open drain",
     // pull ups to keep signal high when no data is being sent
     i2c_init(i2c1, 100 * 1000);
-    gpio_set_function(14, GPIO_FUNC_I2C); // the display has external pull-ups
-    gpio_set_function(15, GPIO_FUNC_I2C); // the display has external pull-ups
+    gpio_set_function(I2C1_SDA_PIN, GPIO_FUNC_I2C); // the display has external pull-ups
+    gpio_set_function(I2C1_SCL_PIN, GPIO_FUNC_I2C); // the display has external pull-ups
     auto display = std::make_shared<ssd1306>(i2c1);
     currentScreen screen(display);
 #endif
@@ -180,36 +277,38 @@ int main() {
 
 #ifdef USE_MQTT
     screen.networkConnecting();
-    //IPStack ipstack("SSID", "PASSWORD"); // example
-    IPStack ipstack("Rhod's wifi 2.4G", "0413113368"); // example
-    auto client = MQTT::Client<IPStack, Countdown, 256>(ipstack);
-    int rc = ipstack.connect("192.168.0.100", 1883);
-    if (rc != 1) {
-        printf("rc from TCP connect is %d\n", rc);
+    MQTTController mqttController("SmartIotMQTT", "SmartIot", "PicoW-hannah", "192.168.1.10", 1883);
+    if(mqttController.connect()){
+        int rc = mqttController.subscribe(sub_topic, messageArrived);
     }
-    screen.networkConnecting();
-    printf("MQTT connecting\n");
-    MQTTPacket_connectData data = MQTTPacket_connectData_initializer;
-    data.MQTTVersion = 3;
-    data.clientID.cstring = (char *) "PicoW-hannah";
-    rc = client.connect(data);
-    if (rc != 0) {
-        printf("rc from MQTT connect is %d\n", rc);
-        printf("Failed to connect to MQTT broker\n");
-        connectedMQTT = false;
-    }else{
-        connectedMQTT = true;
-        printf("MQTT connected\n");
-    }
-    if (connectedMQTT){
-        // We subscribe QoS2. Messages sent with lower QoS will be delivered using the QoS they were sent with
-        rc = client.subscribe(sub_topic, MQTT::QOS2, messageArrived);
-        if (rc != 0) {
-            printf("rc from MQTT subscribe is %d\n", rc);
-            printf("Failed to subscribe MQTT\n");
-        }
-        printf("MQTT subscribed\n");
-    }
+//    IPStack ipstack("Rhod's wifi 2.4G", "0413113368"); // example
+//    auto client = MQTT::Client<IPStack, Countdown, 256>(ipstack);
+//    int rc = ipstack.connect("192.168.0.100", 1883);
+//    if (rc != 1) {
+//        printf("rc from TCP connect is %d\n", rc);
+//    }
+//    printf("MQTT connecting\n");
+//    MQTTPacket_connectData data = MQTTPacket_connectData_initializer;
+//    data.MQTTVersion = 3;
+//    data.clientID.cstring = (char *) "PicoW-hannah";
+//    rc = client.connect(data);
+//    if (rc != 0) {
+//        printf("rc from MQTT connect is %d\n", rc);
+//        printf("Failed to connect to MQTT broker\n");
+//        connectedMQTT = false;
+//    }else{
+//        connectedMQTT = true;
+//        printf("MQTT connected\n");
+//    }
+//    if (connectedMQTT){
+//        // We subscribe QoS2. Messages sent with lower QoS will be delivered using the QoS they were sent with
+//        rc = client.subscribe(sub_topic, MQTT::QOS2, messageArrived);
+//        if (rc != 0) {
+//            printf("rc from MQTT subscribe is %d\n", rc);
+//            printf("Failed to subscribe MQTT\n");
+//        }
+//        printf("MQTT subscribed\n");
+//    }
 
     //auto mqtt_send = make_timeout_time_ms(3000);
     int msg_count = 0;
@@ -266,8 +365,6 @@ int main() {
                 if (autoMode){
                     if (setPoint > MAX_PRESSURE) setPoint = MAX_PRESSURE;
                     set_limit_pressure(setPoint, setPointP_H, setPointP_L);
-//                    setPointP_H = setPoint + OFFSET > MAX_PRESSURE ? MAX_PRESSURE:setPoint + OFFSET;
-//                    setPointP_L = setPoint - OFFSET < 0 ? 0:setPoint - OFFSET;
                     speed = getSpeed(setPoint);
                     write_value_to_eeprom(PRESSURE_ADDR, setPoint);
                 }
@@ -321,9 +418,6 @@ int main() {
                 } else if (menu == SETPOINT_MENU){
                     if (autoMode){
                         set_limit_pressure(valP, setPointP_H, setPointP_L);
-//                        setPoint = valP;
-//                        setPointP_H = setPoint + OFFSET > MAX_PRESSURE ? MAX_PRESSURE:setPoint + OFFSET;
-//                        setPointP_L = setPoint - OFFSET < 0 ? 0:setPoint - OFFSET;
                         speed = getSpeed(setPoint);
                         //write autoMode to eeprom
                         write_value_to_eeprom(PRESSURE_ADDR, valP);
@@ -364,14 +458,11 @@ int main() {
                 gpio_put(led_pin, !gpio_get(led_pin)); // toggle  led
                 modbus_poll = delayed_by_ms(modbus_poll, 3000);
                 co2 = co_2.read();
-                //printf("CO2   = %d ppm\n", co2);
                 humidity = rh.read()/10;
-                //printf("RH    = %d%%\n", humidity);
                 temp = tem.read()/10;
-                //printf("T     = %d C\n", temp);
-                //printf("S     = %.1f\n", speed);
 
-                getPressure(&pressure);
+
+                getPressure(pressure);
                 if (autoMode){
                     if (pressure < setPointP_L){
                         measureCount++;
@@ -426,36 +517,48 @@ int main() {
                     }
                 }
 #ifdef USE_MQTT
-                if (connectedMQTT){
-                    if (!client.isConnected()) {
-                        //printf("Not connected...\n");
-                        rc = client.connect(data);
-                        if (rc != 0) {
-                            //printf("rc from MQTT connect is %d\n", rc);
-                            connectedMQTT = false;
-                        }
+                if(mqttController.get_MQTT_connected()){
+                    if(!mqttController.isConnected()){
+                        mqttController.reconnect();
                     }
-                    // Construct JSON message
                     char buf[256];
                     sprintf(buf, R"({"nr": %d, "speed": %d, "setpoint": %d, "pressure": %d, "auto": %s, "error": %s, "co2": %d, "rh": %d, "temp": %d})",
                             ++msg_count, speed, setPoint, pressure, autoMode ? "true" : "false", error ? "true" : "false", co2, humidity, temp);
-                    MQTT::Message message;
-                    message.retained = false;
-                    message.dup = false;
-                    message.payload = (void *)buf;
-                    message.qos = MQTT::QOS0;
-                    message.payloadlen = strlen(buf);
-                    rc = client.publish(pub_topic, message);
-                    //printf("Publish rc=%d\n", rc);
+                    mqttController.publish(pub_topic, buf);
                 }
+//                if (connectedMQTT){
+//                    if (!client.isConnected()) {
+//                        //printf("Not connected...\n");
+//                        rc = client.connect(data);
+//                        if (rc != 0) {
+//                            //printf("rc from MQTT connect is %d\n", rc);
+//                            connectedMQTT = false;
+//                        }
+//                    }
+//                    // Construct JSON message
+//                    char buf[256];
+//                    sprintf(buf, R"({"nr": %d, "speed": %d, "setpoint": %d, "pressure": %d, "auto": %s, "error": %s, "co2": %d, "rh": %d, "temp": %d})",
+//                            ++msg_count, speed, setPoint, pressure, autoMode ? "true" : "false", error ? "true" : "false", co2, humidity, temp);
+//                    MQTT::Message message;
+//                    message.retained = false;
+//                    message.dup = false;
+//                    message.payload = (void *)buf;
+//                    message.qos = MQTT::QOS0;
+//                    message.payloadlen = strlen(buf);
+//                    rc = client.publish(pub_topic, message);
+//                }
 #endif
             }
 #endif
 #ifdef USE_MQTT
-                if (connectedMQTT){
-                    cyw43_arch_poll(); // obsolete? - see below
-                    client.yield(100); // socket that client uses calls cyw43_arch_poll()
-                }
+                if (mqttController.get_MQTT_connected()){
+                    mqttController.yield(100);
+
+            }
+//                if (connectedMQTT){
+//                    cyw43_arch_poll(); // obsolete? - see below
+//                    client.yield(100); // socket that client uses calls cyw43_arch_poll()
+//                }
 
 #endif
         }

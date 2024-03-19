@@ -57,6 +57,12 @@ add_executable(${PROJECT_NAME}
         speed_pressure_data.h
         picohardware/eeprom.cpp
         main.h
+        ModbusController.h
+        ModbusController.cpp
+        Menu.h
+        Menu.cpp
+        MQTTController.h
+        MQTTController.cpp
 )
 
 # Create map/bin/hex/uf2 files
