@@ -22,10 +22,14 @@
 #define MODE_ADDR (I2C_MEMORY_SIZE - 1)
 #define PRESSURE_ADDR (I2C_MEMORY_SIZE - 2)
 #define SPEED_ADDR (I2C_MEMORY_SIZE-3)
+#define SSID_ADDR (0)
+#define PASS_ADDR (64)
+#define IP_ADDR (128)
+#define WRITE_CYCLE_TIME 5
 
 void init_eeprom();
 void write_to_eeprom(uint16_t memory_address, const uint8_t *data, size_t length);
 void read_from_eeprom(uint16_t memory_address, uint8_t *data_read, size_t length);
-uint8_t get_stored_value(uint16_t memory_address);
-void write_value_to_eeprom(uint16_t memory_addres, const uint8_t value);
+void get_network_eeprom(uint16_t memory_address, uint8_t *value);
+void write_network_eeprom(uint16_t memory_address, const char *value);
 #endif //PICO_MODBUS_EEPROM_H

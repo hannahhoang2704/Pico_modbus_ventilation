@@ -16,6 +16,7 @@
 #include "ssd1306.h"
 #include "screen_selection.h"
 #include "speed_pressure_data.h"
+#include "hardware/resets.h"
 
 // We are using pins 0 and 1, but see the GPIO function select table in the
 // datasheet for information on which other pins can be used.
@@ -41,18 +42,22 @@
 #define USE_MODBUS
 #define USE_MQTT
 #define USE_SSD1306
-#define DEBOUNCE_TIME 1000
-#define TIMEOUT 60000000    //60s
+#define DEBOUNCE_TIME 20000 //20ms
+#define MENU_TIMEOUT 60000000    //60s
+#define SW_0_TIMEOUT 1000000  //1s
 #define led_pin 22
 #define OFFSET 1
-#define NUMBER_OF_GPIO_PINS 3
+#define SSID_POS_X 44
+#define PASS_POS_X 44
+#define IP_POS_X 2
+#define MAX_POS_X 120
 
 using namespace std;
 
 static const char *pub_topic = "hannah/controller/status";
 static const char *sub_topic = "hannah/controller/settings";
-volatile bool rotPressed = false;
-volatile bool swPressed = false;
+volatile bool sw0Pressed = false;
+volatile bool sw2Pressed = false;
 static int temp = 0, humidity = 0, co2 = 0;
 volatile uint64_t startTimeOut = 0;
 volatile int rotCount = 0;
@@ -61,20 +66,24 @@ volatile int mqtt_value = 0;
 volatile uint8_t menu = 2;
 bool autoMode = false;
 volatile bool receivedNewMsg = false;
-int option = 0;
+volatile int option = 0;
 volatile bool irqReady = true;
 volatile int valP = 0;
 volatile int valS = 0;
+//volatile bool enterEditing = false;
+volatile int asciiChar = START_ASCII;
+volatile int posX = 44;
+volatile uint64_t markTime;
 
 uint64_t gpioTimeStamp[3];
 
 void last_interrupt_time(uint gpio){
     uint8_t index = 0;
-    if (gpio == SW_0){
+    if (gpio == SW_2){
         index = 0;
     } else if (gpio == ROT_A){
         index = 1;
-    } else if (gpio == ROT_SW){
+    } else if (gpio == SW_0){
         index = 2;
     }
     gpioTimeStamp[index] = time_us_64();
@@ -84,11 +93,11 @@ void last_interrupt_time(uint gpio){
 uint64_t time_since_last_interrupt(uint gpio) {
     uint64_t current_time = time_us_64();
     uint8_t index = 0;
-    if (gpio == SW_0){
+    if (gpio == SW_2){
         index = 0;
     } else if (gpio == ROT_A){
         index = 1;
-    } else if (gpio == ROT_SW){
+    } else if (gpio == SW_0){
         index = 2;
     }
     return current_time - gpioTimeStamp[index];
@@ -100,17 +109,12 @@ void messageArrived(MQTT::MessageData &md) {
     memcpy(payload_str, message.payload, message.payloadlen);
     payload_str[message.payloadlen] = '\0';
 
-    //printf("Message arrived: qos %d, retained %d, dup %d, packetid %d\n",
-    //       message.qos, message.retained, message.dup, message.id);
-    //printf("Payload %s", (char *)payload_str);
-
     //extract mode and value from arrived message in format `{"auto": true, "pressure": 10}`
     char* auto_mode = strstr(payload_str, "\"auto\":");
     if (auto_mode != nullptr){
         mqtt_mode = (*(auto_mode + 8) == 't');
     }
     sscanf(payload_str, "%*[^0-9]%d", &mqtt_value);
-    //printf("autoMode: %d, setpoint: %d\n", mqtt_mode, mqtt_value);
     autoMode = mqtt_mode;
     menu = 2;
     receivedNewMsg = true;
@@ -118,11 +122,9 @@ void messageArrived(MQTT::MessageData &md) {
 
 // rotary encoder interrupt handler
 void rot_handler(uint gpio, uint32_t event_mask) {
-    if(gpio == ROT_A){
-        // Debounce logic
-        if (time_since_last_interrupt(gpio) < DEBOUNCE_TIME*5)
-            return;
-        if (!gpio_get(gpio)){
+    if ((time_us_64() - markTime) >= DEBOUNCE_TIME){
+        markTime = time_us_64();
+        if(gpio == ROT_A){
             if (irqReady){
                 irqReady = false;
                 startTimeOut = time_us_64();
@@ -136,6 +138,11 @@ void rot_handler(uint gpio, uint32_t event_mask) {
                             if (valS < MAX_FAN_SPEED) valS++;
                         }
                     }
+                    else if (menu == 4){
+                        option = (option + 1) % 5;
+                    } else if (menu == 5){
+                        if (++asciiChar > END_ASCII) asciiChar = START_ASCII;
+                    }
                 }
                 else{
                     if (menu == 0){
@@ -146,35 +153,30 @@ void rot_handler(uint gpio, uint32_t event_mask) {
                         } else {
                             if (valS > 0) valS--;
                         }
+                    }else if (menu == 4){
+                        option = (option + 4) % 5;
+                    } else if (menu == 5){
+                        if (--asciiChar < START_ASCII) asciiChar = END_ASCII;
                     }
                 }
             }
-        }
-
-    } else if (gpio == ROT_SW){
-        // Debounce logic
-        if (time_since_last_interrupt(gpio) < DEBOUNCE_TIME*500)
-            return;
-        if (!gpio_get(gpio)){
-            startTimeOut = time_us_64();
-            rotPressed = true;
-        }
-    } else if(gpio == SW_0){
-        // Debounce logic
-        if (time_since_last_interrupt(gpio) < DEBOUNCE_TIME*500)
-            return;
-        if (!gpio_get(gpio)) {
-            startTimeOut = time_us_64();
-            swPressed = true;
+        } else {
+            busy_wait_ms(5);
+            if (!gpio_get(gpio)){
+                startTimeOut = time_us_64();
+                if (gpio == SW_0) {
+                    sw0Pressed = true;
+                } else if (gpio == SW_2) {
+                    sw2Pressed = true;
+                }
+            }
         }
     }
-    // Update last interrupt time for the GPIO pin
-    last_interrupt_time(gpio);
 }
 
 
-bool timeout(const uint64_t start){
-    return (time_us_64() - start) > TIMEOUT;
+bool timeout(const uint64_t start, const uint64_t time = MENU_TIMEOUT){
+    return (time_us_64() - start) > time;
 }
 
 void getPressure(int *pressure){
@@ -187,11 +189,15 @@ void getPressure(int *pressure){
     //sleep_ms(100);
     pressureData = ((pressure_data[0] << 8) | pressure_data[1])/SCALE_FACTOR*ALTITUDE_CORR_FACTOR;
     *pressure = pressureData > 130 ? 0 : pressureData;
-    //printf("Pressure = %dpa\n",*pressure);
 }
 
 int main() {
 
+    char ssid[50];
+    char truncatedSSID[50];
+    char pass[50];
+    char truncatedPass[50];
+    char ip[16];
     int pressure = 0;
     int speed = 0;
 
@@ -205,6 +211,7 @@ int main() {
     int delta = 10;
     bool pressureDroped = false;
     bool connectedMQTT = false;
+    uint8_t tempBuf[1];
 
     // Initialize hw
     stdio_init_all();
@@ -218,29 +225,37 @@ int main() {
     init_rotary_knob();
 
     gpio_set_irq_enabled_with_callback(ROT_A, GPIO_IRQ_EDGE_FALL, true, &rot_handler);
-    gpio_set_irq_enabled_with_callback(ROT_SW, GPIO_IRQ_EDGE_FALL, true, &rot_handler);
     gpio_set_irq_enabled_with_callback(SW_0, GPIO_IRQ_EDGE_FALL, true, &rot_handler);
+    gpio_set_irq_enabled_with_callback(SW_2, GPIO_IRQ_EDGE_FALL, true, &rot_handler);
 
     printf("\nBoot\n");
 
     //get data stored from EEPROM
-    autoMode = get_stored_value(MODE_ADDR);
+    read_from_eeprom(MODE_ADDR, tempBuf, 1);
+    autoMode = tempBuf[0];
     if (autoMode != 0 && autoMode != 1){
         autoMode = true;
     }
     if (autoMode){
-        setPoint = get_stored_value(PRESSURE_ADDR);
+        read_from_eeprom(PRESSURE_ADDR, tempBuf, 1);
+        setPoint = tempBuf[0];
         if(setPoint < 0 || setPoint > MAX_PRESSURE) setPoint = 0;
         speed = getSpeed(setPoint);
         setPointP_H = setPoint + OFFSET > MAX_PRESSURE ? MAX_PRESSURE:setPoint + OFFSET;
         setPointP_L = setPoint - OFFSET < 0 ? 0:setPoint - OFFSET;
     }
     else{
-        setPoint = get_stored_value(SPEED_ADDR);
+        read_from_eeprom(SPEED_ADDR, tempBuf, 1);
+        setPoint = tempBuf[0];
         if(setPoint < 0 || setPoint > MAX_FAN_SPEED) setPoint = 0;
         speed = setPoint;
         pressure = 0;
     }
+    //get network data
+    get_network_eeprom(IP_ADDR, reinterpret_cast<uint8_t *>(ip));
+    get_network_eeprom(PASS_ADDR, reinterpret_cast<uint8_t *>(pass));
+    get_network_eeprom(SSID_ADDR, reinterpret_cast<uint8_t *>(ssid));
+
 #ifdef USE_SSD1306
     // I2C is "open drain",
     // pull ups to keep signal high when no data is being sent
@@ -255,9 +270,9 @@ int main() {
 #ifdef USE_MQTT
     screen.networkConnecting();
     //IPStack ipstack("SSID", "PASSWORD"); // example
-    IPStack ipstack("Rhod's wifi 2.4G", "0413113368"); // example
+    IPStack ipstack(ssid, pass); // example
     auto client = MQTT::Client<IPStack, Countdown, 256>(ipstack);
-    int rc = ipstack.connect("192.168.0.100", 1883);
+    int rc = ipstack.connect(ip, 1883);
     if (rc != 1) {
         printf("rc from TCP connect is %d\n", rc);
     }
@@ -307,6 +322,8 @@ int main() {
     auto modbus_poll = make_timeout_time_ms(3000);
 #endif
 
+    markTime = time_us_64();    //start marking time for irq handler
+
     while (true) {
         if (menu != 2 && menu != 3){
             enableMeasurement = false;
@@ -318,7 +335,7 @@ int main() {
             } else {    //timeout, show info screen
                 menu = 2;
             }
-        }else if(menu == 1){
+        } else if(menu == 1){
             if (!timeout(startTimeOut)){
                 if (autoMode){
                     screen.setPressure(valP);
@@ -329,24 +346,26 @@ int main() {
             }else {    //timeout, show info screen
                 menu = 2;
             }
-        }
-        else if(menu == 2){
+        } else if(menu == 2){
             enableMeasurement = true;
             screen.info(autoMode,speed, pressure, temp, humidity, co2);
             if (receivedNewMsg){
                 error = false;
-                write_value_to_eeprom(MODE_ADDR, autoMode);
+                tempBuf[0] = autoMode;
+                write_to_eeprom(MODE_ADDR, tempBuf, 1);
                 setPoint = mqtt_value;
                 if (autoMode){
                     if (setPoint > MAX_PRESSURE) setPoint = MAX_PRESSURE;
                     setPointP_H = setPoint + OFFSET > MAX_PRESSURE ? MAX_PRESSURE:setPoint + OFFSET;
                     setPointP_L = setPoint - OFFSET < 0 ? 0:setPoint - OFFSET;
                     speed = getSpeed(setPoint);
-                    write_value_to_eeprom(PRESSURE_ADDR, setPoint);
+                    tempBuf[0] = setPoint;
+                    write_to_eeprom(PRESSURE_ADDR, tempBuf, 1);
                 }
                 else{
                     speed = setPoint;
-                    write_value_to_eeprom(SPEED_ADDR, setPoint);
+                    tempBuf[0] = setPoint;
+                    write_to_eeprom(SPEED_ADDR, tempBuf, 1);
                     if (speed > 8 && speed < 50){
                         fanSpeed.write(500);
                         sleep_ms(100);
@@ -356,14 +375,23 @@ int main() {
                 }
                 receivedNewMsg = false;
             }
-        }
-        else if (menu == 3){
+        } else if (menu == 3){
             screen.error();
-        } else{
-            //screen.mqtt();
+        } else if (menu == 4){
+            if (!timeout(startTimeOut)){
+                screen.mqtt(option, ssid, pass, ip);
+                irqReady = true;
+            } else {    //timeout, show info screen
+                menu = 2;
+            }
+        } else if (menu == 5){
+            screen.asciiCharSelection(posX, option, asciiChar);
+            irqReady = true;
+        } else if (menu == 6){
+            screen.askRestart();
         }
         //handle rot switch pressed to confirm setting and move to next screen
-        if (rotPressed){
+        if (sw0Pressed){
             if (menu < 2){
                 measureCount = 0;
                 if (menu == 0){
@@ -373,20 +401,23 @@ int main() {
                             autoMode = false;
                             valS = speed;
                             //write autoMode to eeprom
-                            write_value_to_eeprom(MODE_ADDR, autoMode);
+                            tempBuf[0] = autoMode;
+                            write_to_eeprom(MODE_ADDR, tempBuf, 1);
                             break;
                         case 1:
                             menu = 1;
                             autoMode = true;
                             valP = pressure;
                             //write autoMode to eeprom
-                            write_value_to_eeprom(MODE_ADDR, autoMode);
+                            tempBuf[0] = autoMode;
+                            write_to_eeprom(MODE_ADDR, tempBuf, 1);
                             break;
                         case 2:
                             menu = 2;
                             break;
                         case 3:
                             menu = 4;
+                            option = 0;
                             break;
                         default:
                             break;
@@ -398,13 +429,14 @@ int main() {
                         setPointP_L = setPoint - OFFSET < 0 ? 0:setPoint - OFFSET;
                         speed = getSpeed(setPoint);
                         //write autoMode to eeprom
-                        write_value_to_eeprom(PRESSURE_ADDR, valP);
-                    }
-                    else {
+                        tempBuf[0] = valP;
+                        write_to_eeprom(PRESSURE_ADDR, tempBuf, 1);
+                    } else {
                         setPoint = valS;
                         speed = setPoint;
                         //write autoMode to eeprom
-                        write_value_to_eeprom(SPEED_ADDR, valS);
+                        tempBuf[0] = valS;
+                        write_to_eeprom(SPEED_ADDR, tempBuf, 1);
                     }
                     menu = 2;
                     if (speed > 8 && speed < 50){
@@ -418,15 +450,104 @@ int main() {
                         sleep_ms(100);
                     }
                 }
+                sw0Pressed = false;
+            } else if (menu == 4){
+                if (option == 3){
+                    //save data, ask user to reset board
+                    write_network_eeprom(SSID_ADDR, ssid);
+                    write_network_eeprom(PASS_ADDR, pass);
+                    write_network_eeprom(IP_ADDR, ip);
+                    sw0Pressed = false;
+                    menu = 6;
+                } else if (option == 4){
+                    menu = 2;
+                    sw0Pressed = false;
+                } else {
+                    if (!timeout(startTimeOut, SW_0_TIMEOUT)){
+                        if (gpio_get(SW_0)){
+                            sw0Pressed = false;
+                        }
+                    } else {
+                        sw0Pressed = false;
+                        // enter editing
+                        switch (option) {
+                            case 0:
+                                strcpy(ssid, "");
+                                strcpy(truncatedSSID, "");
+                                posX = SSID_POS_X;
+                                break;
+                            case 1:
+                                strcpy(pass, "");
+                                strcpy(truncatedPass, "");
+                                posX = PASS_POS_X;
+                                break;
+                            case 2:
+                                strcpy(ip, "");
+                                posX = IP_POS_X;
+                                break;
+                            default:
+                                break;
+                        }
+                        asciiChar = START_ASCII - 1;
+                        screen.mqtt(option, ssid, pass, ip);
+                        menu = 5;
+                        sleep_ms(100);
+                    }
+                }
+            } else if (menu == 5){
+                if (!timeout(startTimeOut, SW_0_TIMEOUT)){
+                    if (gpio_get(SW_0)){
+                        char c[2];
+                        sprintf(c, "%c", asciiChar);
+                        sw0Pressed = false;
+                        //confirm letter
+                        switch (option) {
+                            case 0:
+                                strcat(ssid, c);
+                                strcat(truncatedSSID, c);
+                                break;
+                            case 1:
+                                strcat(pass, c);
+                                strcat(truncatedPass, c);
+                                break;
+                            case 2:
+                                strcat(ip, c);
+                                break;
+                        }
+                        posX += CHAR_WIDTH;
+                        if (posX > MAX_POS_X){
+                            posX -= CHAR_WIDTH;
+                            //scroll back 1 char
+                            if (option == 0){
+                                for (int i = 0; i < strlen(truncatedSSID); i++){
+                                    truncatedSSID[i] = truncatedSSID[i+1];
+                                }
+                                screen.mqtt(option, truncatedSSID, pass, ip);
+                            } else if (option == 1){
+                                for (int i = 0; i < strlen(truncatedPass); i++){
+                                    truncatedPass[i] = truncatedPass[i+1];
+                                }
+                                screen.mqtt(option, ssid, truncatedPass, ip);
+                            }
+                        }
+                        asciiChar = START_ASCII - 1;
+                    }
+                } else {
+                    sw0Pressed = false;
+                    // exit editing
+                    menu = 4;
+                }
+            } else {
+                sw0Pressed = false;
             }
-            rotPressed = false;
         }
         //handle sw0 switch pressed to change to menu 2
-        if(swPressed){
+        if(sw2Pressed){
+            option = 0;
             measureCount = 0;
             error = false;
             menu = 0;
-            swPressed = false;
+            sw2Pressed = false;
         }
 //start measurement
 
@@ -468,8 +589,7 @@ int main() {
                         if (speed > 8){
                             if ((pressure - setPointP_H) > 5){
                                 speed = getSpeed(setPoint);
-                            }
-                            else {
+                            } else {
                                 speed--;
                             }
                         }
@@ -484,8 +604,7 @@ int main() {
                         if ((pressure - setPointP_H) > 5){
                             speed -= delta-2;
                             if (speed < 0) speed = 0;
-                        }
-                        else {
+                        } else {
                             speed--;
                             pressureDroped = false;
                         }
